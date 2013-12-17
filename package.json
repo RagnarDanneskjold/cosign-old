@@ -39,7 +39,7 @@
     "commander": ">=2.0.0",
     "buffertools": ">=1.1.1",
     "bignum": ">=0.6.1",
-    "libcoin": ">=0.1.4"
+    "bitcore": ">=0.1.4"
   },
   "devDependencies": {},
   "license": "MIT"
