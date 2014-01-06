@@ -496,10 +496,10 @@ function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
 	var scriptHash = scriptPubKey.capture()[0];
 	var addr = new Address(network.addressScript, scriptHash);
 	var addrStr = addr.as('base58');
-	if (!(addrStr in wallet.scripts))
+	if (!(addrStr in wallet.datastore.scripts))
 		return;
 
-	var scriptHex = wallet.scripts[addrStr];
+	var scriptHex = wallet.datastore.scripts[addrStr];
 	var scriptBuf = new Buffer(scriptHex, 'hex');
 	var scriptPubKey = new Script(scriptBuf);
 	var scriptType = scriptPubKey.classify();
