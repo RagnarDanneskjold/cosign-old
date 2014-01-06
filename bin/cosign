@@ -388,7 +388,7 @@ function cmd_raw_sign_pubkeyhash(anypay, tx, i, scriptPubKey, txSigHash)
 	var sigRaw = wkey.privKey.signSync(txSigHash);
 
 	var sigType = new Buffer(1);
-	sigType[0] = anypay ? SIGHASH_ANYONECANPAY : SIGHASH_ALL;
+	sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
 
 	var sig = Buffer.concat(sigRaw, sigType);
 
@@ -430,7 +430,7 @@ function cmd_raw_sign_pubkey(anypay, tx, i, scriptPubKey, txSigHash)
 	var sigRaw = wkey.privKey.signSync(txSigHash);
 
 	var sigType = new Buffer(1);
-	sigType[0] = anypay ? SIGHASH_ANYONECANPAY : SIGHASH_ALL;
+	sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
 
 	var sig = Buffer.concat(sigRaw, sigType);
 
@@ -476,7 +476,7 @@ function cmd_raw_sign_multisig(anypay, tx, i, scriptPubKey, txSigHash)
 			var sigRaw = wkey.privKey.signSync(txSigHash);
 
 			var sigType = new Buffer(1);
-			sigType[0] = anypay? SIGHASH_ANYONECANPAY : SIGHASH_ALL;
+			sigType[0] = anypay? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
 
 			var sig = Buffer.concat(sigRaw, sigType);
 
@@ -493,21 +493,21 @@ function cmd_raw_sign_multisig(anypay, tx, i, scriptPubKey, txSigHash)
 
 function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
 {
-	var scriptHash = scriptPubKey.capture();
+	var scriptHash = scriptPubKey.capture()[0];
 	var addr = new Address(network.addressScript, scriptHash);
 	var addrStr = addr.as('base58');
-	if (!(addrStr in wallet.scripts))
+	if (!(addrStr in wallet.datastore.scripts))
 		return;
 
-	var scriptHex = wallet.scripts[addrStr];
+	var scriptHex = wallet.datastore.scripts[addrStr];
 	var scriptBuf = new Buffer(scriptHex, 'hex');
 	var scriptPubKey = new Script(scriptBuf);
 	var scriptType = scriptPubKey.classify();
 	var rc = -1;
 
-	var txSigHash = tx.hashForsignature(scriptPubKey, i,
-				       anypay ? SIGHASH_ANYONECANPAY :
-				       SIGHASH_ALL);
+	var txSigHash = tx.hashForSignature(scriptPubKey, i,
+				       anypay ? Transaction.SIGHASH_ANYONECANPAY :
+				       Transaction.SIGHASH_ALL);
 	switch (scriptType) {
 	case Script.TX_PUBKEYHASH:
 		rc = cmd_raw_sign_pubkeyhash(anypay, tx, i, scriptPubKey, txSigHash);
