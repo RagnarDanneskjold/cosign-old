@@ -4,7 +4,7 @@
 
 require('buffertools');
 var fs = require('fs');
-var util = require('util');
+var util = require('bitcore/util/util');
 var program = require('commander');
 var BitcoinRPC = require('bitcore/RpcClient').class();
 var Transaction = require('bitcore/Transaction').class();
