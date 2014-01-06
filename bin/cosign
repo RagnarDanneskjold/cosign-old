@@ -505,7 +505,7 @@ function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
 	var scriptType = scriptPubKey.classify();
 	var rc = -1;
 
-	var txSigHash = tx.hashForsignature(scriptPubKey, i,
+	var txSigHash = tx.hashForSignature(scriptPubKey, i,
 				       anypay ? Transaction.SIGHASH_ANYONECANPAY :
 				       Transaction.SIGHASH_ALL);
 	switch (scriptType) {
