@@ -292,7 +292,7 @@ function cmd_raw_create_internal()
 		var addr = new Address(addrStr);
 		var script = Script.createPubKeyHashOut(addr.payload());
 
-		var valueNum = bignum(datastore.outputs[addrStr]);
+		var valueNum = util.parseValue(datastore.outputs[addrStr]);
 		var value = coinUtil.bigIntToValue(valueNum);
 
 		var txout = {
