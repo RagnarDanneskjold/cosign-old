@@ -493,7 +493,7 @@ function cmd_raw_sign_multisig(anypay, tx, i, scriptPubKey, txSigHash)
 
 function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
 {
-	var scriptHash = scriptPubKey.capture();
+	var scriptHash = scriptPubKey.capture()[0];
 	var addr = new Address(network.addressScript, scriptHash);
 	var addrStr = addr.as('base58');
 	if (!(addrStr in wallet.scripts))
