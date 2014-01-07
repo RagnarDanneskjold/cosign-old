@@ -541,12 +541,12 @@ function cmd_raw_sign_internal2(anypay, tx, inputIdx, scriptObj)
 	var txin = tx.ins[inputIdx];
 	if (!txin)
 		return -2;	// invalid?
-	if (txin.s.length > 0)
-		return -1;	// already signed, did no work
 
 	var scriptBuf = new Buffer(scriptObj['hex'], 'hex');
 	var scriptPubKey = new Script(scriptBuf);
 	var scriptType = scriptPubKey.classify();
+	if (txin.s.length > 0 && scriptType!=Script.TX_SCRIPTHASH && scriptType!=Script.TX_MULTISIG)
+		return -1;	// already signed, did no work
 	var rc = -1;
 
 	var txSigHash = tx.hashForSignature(scriptPubKey, inputIdx,
