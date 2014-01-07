@@ -13,6 +13,7 @@ var WalletKey = require('bitcore/WalletKey').class();
 var Script = require('bitcore/Script').class();
 var coinUtil = require('bitcore/util/util');
 var Parser = require('bitcore/util/BinaryParser').class();
+var async = require('async');
 var bignum = require('bignum');
 var TXTOOL_VERSION = '0.2';
 
@@ -580,22 +581,38 @@ function cmd_raw_sign_internal(anypay)
 	var inputs = tx.inputs();
 
 	var inputIdx = 0;
+	var f=[];
 	do {
-		var inputIdxCopy = inputIdx;
-		var input = inputs[inputIdxCopy];
-		var hashStr = coinUtil.formatHashFull(input[0]);
-		rpc.getTxOut(hashStr, input[1], function(err, resp) {
-			if (err) throw new Error(err['message']);
+		(function(){
+			var inputIdxCopy = inputIdx;
+			f[inputIdxCopy] = function(callback) {
+				var input = inputs[inputIdxCopy];
+				var hashStr = coinUtil.formatHashFull(input[0]);
+				rpc.getTxOut(hashStr, input[1], function(err, resp) {
+					if (err) throw new Error(err['message']);
 
-			var rpcres = resp['result'];
-			var scriptObj = rpcres['scriptPubKey'];
+					var rpcres = resp['result'];
+					var scriptObj = rpcres['scriptPubKey'];
 
-			var rc = cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
-			// console.log("int2 rc = ", rc);
-		});
+					var rc = cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
+
+					callback();
+					// console.log("int2 rc = ", rc);
+				});
+			}
+		})();
 
 		inputIdx++;
 	} while (inputIdx < inputs.length);
+	
+	async.series(f,function(err){raw_sign_wallet_cb(err, tx)});
+}
+
+function raw_sign_wallet_cb(err, tx)
+{
+	if (err) throw new Error(err['message']);
+	datastore['raw'] = tx.serialize().toString('hex');
+	write_datastore(function(err){});
 }
 
 function raw_sign_cb(err, resp)
