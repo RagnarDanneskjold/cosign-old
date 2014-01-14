@@ -492,6 +492,49 @@ function cmd_raw_sign_multisig(anypay, tx, i, scriptPubKey, txSigHash)
 	return n_signed;
 }
 
+function finishedMultiSig(scriptSig)
+{
+	var nsigs = 0;
+	for (var i = 0; i < scriptSig.chunks.length-1; i++)
+		if (scriptSig.chunks[i] !== 0)
+			nsigs++;
+
+	var serializedScript = scriptSig.chunks[scriptSig.chunks.length-1];
+	var script = new Script(serializedScript);
+	var nreq = script.chunks[0] - 80; //see OP_2-OP_16
+
+	if (nsigs == nreq)
+		return true;
+	else
+		return false;
+}
+
+function removePlaceHolders(scriptSig)
+{
+	var chunks = [];
+	for (var i in scriptSig.chunks)
+	{
+		var chunk = scriptSig.chunks[i];
+		if (chunk != 0)
+		{
+			chunks.push(chunk);
+			}
+	}
+	scriptSig.chunks = chunks;
+	scriptSig.updateBuffer();
+	return scriptSig;
+}
+
+function prependOp0(scriptSig)
+{
+	var chunks = [0];
+	for (i in scriptSig.chunks)
+		chunks.push(scriptSig.chunks[i]);
+	scriptSig.chunks = chunks;
+	scriptSig.updateBuffer();
+	return scriptSig;
+}
+
 function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
 {
 	var scriptHash = scriptPubKey.capture()[0];
@@ -530,6 +573,13 @@ function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
 	if (rc > 0 && scriptBufNotAlreadyAppended) {
 		scriptSig.chunks.push(scriptBuf);
 		scriptSig.updateBuffer();
+		tx.ins[i].s = scriptSig.getBuffer();
+	}
+
+	if (scriptType == Script.TX_MULTISIG && finishedMultiSig(scriptSig))
+	{
+		removePlaceHolders(scriptSig);
+		prependOp0(scriptSig);
 		tx.ins[i].s = scriptSig.getBuffer();
 	}
 	
