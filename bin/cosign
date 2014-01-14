@@ -526,7 +526,8 @@ function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
 	var scriptSigBuf = tx.ins[i].s;
 	var scriptSig = new Script(scriptSigBuf);
 	var len = scriptSig.chunks.length;
-	if (rc > 0 && scriptSig.chunks[len-1] && scriptSig.chunks[len-1].toString('hex') != scriptBuf.toString('hex')) {
+	var scriptBufNotAlreadyAppended = scriptSig.chunks[len-1] !== undefined && (typeof scriptSig.chunks[len-1] == "number" || scriptSig.chunks[len-1].toString('hex') != scriptBuf.toString('hex'));
+	if (rc > 0 && scriptBufNotAlreadyAppended) {
 		scriptSig.chunks.push(scriptBuf);
 		scriptSig.updateBuffer();
 		tx.ins[i].s = scriptSig.getBuffer();
