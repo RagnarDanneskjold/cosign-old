@@ -41,7 +41,6 @@ function spec(b) {
         'pass' : self.program.rpcpass,
         'protocol' : 'http'
     });
-    console.log('pass: ' + this.program.pass);
   
     this.statedb_fn = this.program.file;
     
