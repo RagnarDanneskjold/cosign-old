@@ -2,7 +2,7 @@
 // MIT/X11-like license.  See LICENSE.txt.
 // Copyright 2013 BitPay, Inc.
 
-require('buffertools');
+var buffertools = require('buffertools');
 var fs = require('fs');
 var program = require('commander');
 var BitcoinRPC = require('bitcore/RpcClient').class();
@@ -277,7 +277,7 @@ function cmd_raw_create_internal()
     txin.q = 0xffffffff;
 
     var hash = new Buffer(inputobj.txid, 'hex');
-    hash.reverse();
+    buffertools.reverse(hash);
     var vout = parseInt(inputobj.vout);
     var voutBuf = new Buffer(4);
     voutBuf.writeUInt32LE(vout, 0);
@@ -391,7 +391,7 @@ function cmd_raw_sign_pubkeyhash(anypay, tx, i, scriptPubKey, txSigHash)
   var sigType = new Buffer(1);
   sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
 
-  var sig = Buffer.concat(sigRaw, sigType);
+  var sig = Buffer.concat([sigRaw, sigType]);
 
   var scriptSig = new Script();
   scriptSig.chunks.push(sig);
@@ -433,7 +433,7 @@ function cmd_raw_sign_pubkey(anypay, tx, i, scriptPubKey, txSigHash)
   var sigType = new Buffer(1);
   sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
 
-  var sig = Buffer.concat(sigRaw, sigType);
+  var sig = Buffer.concat([sigRaw, sigType]);
 
   var scriptSig = new Script();
   scriptSig.chunks.push(sig);

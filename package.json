@@ -37,7 +37,7 @@
   "dependencies": {
     "classtool": ">=1.0.0",
     "commander": ">=2.0.0",
-    "buffertools": ">=1.1.1",
+    "buffertools": ">=2.0.0",
     "bignum": ">=0.6.1",
     "bitcore": ">=0.1.4",
     "async": ">=0.2.9"
