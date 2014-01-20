@@ -4,6 +4,7 @@ var sinon = require('sinon');
 var Cosign = require('../bin/Cosign').class();
 
 describe('Cosign', function(){
+
   describe('#Cosign', function(){
     it('should create a new cosign with no error', function() {
       var cosign = new Cosign(["","","dump"]);
@@ -12,10 +13,16 @@ describe('Cosign', function(){
   });
 
   describe('#main', function() {
+
     describe('clean', function() {
       it('should clean the database file', function() {
+        var cosign = new Cosign(["","","clean"]);
+        cosign.remove_database = sinon.spy();
+        cosign.main();
+        cosign.remove_database.calledOnce.should.equal(true);
       });
     });
+
     describe('init', function() {
       it('should init the database file', function() {
         var fs = {};
