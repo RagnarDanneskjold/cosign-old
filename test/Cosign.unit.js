@@ -11,15 +11,21 @@ describe('Cosign', function(){
     });
   });
 
-  describe('main', function() {
-    it('should init the database file', function() {
-      var fs = {};
-      fs.writeFile = sinon.spy();
-      var Cosign2 = require('../bin/Cosign').createClass({fs: fs});
-      var cosign = new Cosign2(["","","init"]);
-      cosign.main();
-      cosign.program.args[0].should.equal("init");
-      fs.writeFile.calledOnce.should.equal(true);
+  describe('#main', function() {
+    describe('clean', function() {
+      it('should clean the database file', function() {
+      });
+    });
+    describe('init', function() {
+      it('should init the database file', function() {
+        var fs = {};
+        fs.writeFile = sinon.spy();
+        var Cosign2 = require('../bin/Cosign').createClass({fs: fs});
+        var cosign = new Cosign2(["","","init"]);
+        cosign.main();
+        cosign.program.args[0].should.equal("init");
+        fs.writeFile.calledOnce.should.equal(true);
+      });
     });
   });
 });
