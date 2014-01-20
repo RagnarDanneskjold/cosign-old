@@ -15,7 +15,7 @@ describe('Cosign', function(){
   describe('#main', function() {
 
     describe('clean', function() {
-      it('should clean the database file', function() {
+      it('should call the clean function', function() {
         var cosign = new Cosign(["","","clean"]);
         cosign.remove_database = sinon.spy();
         cosign.main();
