@@ -23,6 +23,15 @@ describe('Cosign', function(){
       });
     });
 
+    describe('help', function() {
+      it('should call the list_commands function', function() {
+        var cosign = new Cosign(["","","help"]);
+        cosign.list_commands = sinon.spy();
+        cosign.main();
+        cosign.list_commands.calledOnce.should.equal(true);
+      });
+    });
+
     describe('init', function() {
       it('should init the database file', function() {
         var fs = {};
