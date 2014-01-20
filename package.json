@@ -40,7 +40,9 @@
     "buffertools": ">=2.0.0",
     "bignum": ">=0.6.1",
     "bitcore": ">=0.1.4",
-    "async": ">=0.2.9"
+    "async": ">=0.2.9",
+    "should": ">=3.0.0",
+    "sinon": ">=1.7.3"
   },
   "devDependencies": {},
   "license": "MIT"
