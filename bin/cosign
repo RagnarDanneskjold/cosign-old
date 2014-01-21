@@ -12,6 +12,9 @@ function spec(b) {
   var Address = b.Address || require('bitcore/Address').class();
   var Wallet = b.Wallet || require('bitcore/Wallet').class();
   var WalletKey = b.WalletKey || require('bitcore/WalletKey').class();
+  var KeyModule = b.KeyModule || require('bitcore/Key');
+  var networks = b.networks || require('bitcore/networks');
+  var PrivateKey = b.PrivateKey || require('bitcore/PrivateKey').class();
   var Script = b.Script || require('bitcore/Script').class();
   var coinUtil = b.coinUtil || require('bitcore/util/util');
   var Parser = b.Parser || require('bitcore/util/BinaryParser').class();
@@ -92,6 +95,7 @@ function spec(b) {
     s += "outputs.clear\tClear list of TX outputs\n";
     s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
     s += "pubkeys KEY1 KEY2 KEY3...\n\t\tAdd to list of pubkeys / bitcoin addresses\n";
+    s += "pubkeys.check\tCheck for which pubkeys you have the privkey\n";
     s += "pubkeys.clear\tClear list of pubkeys\n";
     s += "raw SERIALIZED-TX\n\t\tInput serialized transaction from command line\n";
     s += "raw.append FILE\tAppend FILE to serialized transaction data\n";
@@ -254,6 +258,51 @@ function spec(b) {
   {
     this.parse_pubkeys(1);
     this.write_datastore(function(err) {});
+  }
+
+  Cosign.prototype.cmd_pubkeys_check_file = function()
+  {
+    for (var i in this.datastore.pubkeys) {
+      var pubkey = this.datastore.pubkeys[i];
+
+      var haskey = false;
+
+      for (var j in this.wallet.datastore.keys) {
+
+        //pubkey should be what's recorded in wallet
+        var key = this.wallet.datastore.keys[j];
+        var pubkey2 = key.pub.toString('hex');
+
+        //pubkey should be what can be rederived from private key
+        var pkey = new PrivateKey(key.priv);
+        var eckey = new KeyModule.Key.generateSync();
+        var buf = new Buffer(pkey.as('hex'), 'hex');
+        eckey.private = new Buffer(pkey.payload());
+        eckey.compressed = pkey.compressed();
+        eckey.regenerateSync();
+        var pubkey3 = eckey.public.toString('hex');
+
+        if (pubkey2 == pubkey && pubkey3 == pubkey) {
+          haskey = true;
+          break;
+        }
+      }
+      console.log(pubkey, haskey ? "yes" : "no");
+    }
+  }
+
+  Cosign.prototype.cmd_pubkeys_check_rpc = function()
+  {
+    console.log('Not implemented yet.');
+  }
+
+  Cosign.prototype.cmd_pubkeys_check = function()
+  {
+    var self = this;
+    if (this.wallet)
+      this.cmd_pubkeys_check_file();
+    else
+      this.cmd_pubkeys_check_rpc();
   }
   
   Cosign.prototype.cmd_inputs = function()
@@ -913,6 +962,9 @@ function spec(b) {
       break;
     case "pubkeys":
       this.cmd_pubkeys();
+      break;
+    case "pubkeys.check":
+      this.cmd_pubkeys_check();
       break;
     case "pubkeys.clear":
       delete this.datastore['pubkeys'];
