@@ -81,6 +81,8 @@ function spec(b) {
     s += "init\t\tInitialize new transaction state database\n";
     s += "inputs TXID1 VOUT1 TXID2 VOUT2...\n\t\tAppend inputs to TX\n";
     s += "inputs.clear\tClear list of inputs\n";
+    s += "inputtxs.get\tRetrieve the full transactions for each input\n";
+    s += "inputtxs.clear\tClear list of input transactions\n";
     s += "multisig N-REQUIRED KEY1 KEY2 KEY3...\n\t\tBegin new multi-sig tx\n";
     s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
     s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
@@ -236,6 +238,39 @@ function spec(b) {
     }
   
     this.write_datastore(function(err) {});
+  }
+
+  Cosign.prototype.cmd_inputtxs_get = function()
+  {
+    var self = this;
+    var inputs = self.datastore.inputs;
+    var inputIdx = 0;
+    var f = [];
+    do {
+      (function() {
+        var inputIdxCopy = inputIdx;
+        f[inputIdxCopy] = function(callback) {
+          var input = inputs[inputIdxCopy];
+          var hashStr = input.txid;
+          self.rpc.getRawTransaction(hashStr, function(err, resp) {
+            if (err) throw new Error(err['message']);
+
+            var txhash = resp['result'];
+
+            if (!self.datastore.inputtxs)
+              self.datastore.inputtxs = {};
+
+            self.datastore.inputtxs[hashStr]=txhash;
+
+            callback();
+          });
+        }
+      })();
+
+      inputIdx++;
+    } while (inputIdx < inputs.length);
+
+    async.series(f,function(err){self.write_datastore(function() {})});
   }
   
   Cosign.prototype.cmd_outputs = function()
@@ -773,6 +808,14 @@ function spec(b) {
       break;
     case "inputs.clear":
       delete this.datastore['inputs'];
+      this.write_datastore(function(err) {});
+      break;
+
+    case "inputtxs.get":
+      this.cmd_inputtxs_get();
+      break;
+    case "inputtxs.clear":
+      delete this.datastore['inputtxs'];
       this.write_datastore(function(err) {});
       break;
   
