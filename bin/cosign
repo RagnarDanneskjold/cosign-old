@@ -808,8 +808,12 @@ function spec(b) {
   
   Cosign.prototype.cmd_wallet_msig = function()
   {
-    if (!this.datastore['n_required'] || !this.datastore['pubkeys'])
-      throw new Error("Missing N-Required and/or pubkeys");
+    if (!this.datastore['n_required'] || !this.datastore['pubkeys'] || !this.datastore['redeemScript'])
+      throw new Error("Missing N-Required and/or pubkeys and/or redeemScript");
+
+    var check = this.cmd_redeem_validate_internal();
+    if (!check)
+      throw new Error("Pubkeys and n-req do not match redeemScript");
   
     if (this.wallet)
       this.cmd_wallet_msig_file();
