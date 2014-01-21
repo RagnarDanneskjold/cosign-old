@@ -713,7 +713,6 @@ function spec(b) {
             var rc = self.cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
   
             callback();
-            // console.log("int2 rc = ", rc);
           });
         }
       })();
