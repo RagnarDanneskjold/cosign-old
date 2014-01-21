@@ -679,6 +679,28 @@ function spec(b) {
     do {
       (function(){
         var inputIdxCopy = inputIdx;
+
+        //inputtxs are in datastore
+        if (self.datastore.inputtxs) {
+          f[inputIdxCopy] = function(callback) {
+            var intxid = self.datastore.inputs[inputIdxCopy].txid;
+            var intxhex = self.datastore.inputtxs[intxid];
+            var intxbuf = new Buffer(intxhex, 'hex');
+            var intx = new Transaction();
+            intx.parse(intxbuf);
+            var outn = self.datastore.inputs[inputIdxCopy].vout;
+            var out = intx.outs[outn];
+            var outscript = out.getScript();
+            var outscripthex = outscript.buffer.toString('hex');
+            var scriptObj = {};
+            scriptObj.hex = outscripthex;
+            var rc = self.cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
+            callback();
+          }
+          return;
+        }
+
+        //inputtxs are not in datastore - must talk to bitcoind
         f[inputIdxCopy] = function(callback) {
           var input = inputs[inputIdxCopy];
           var hashStr = coinUtil.formatHashFull(input[0]);
