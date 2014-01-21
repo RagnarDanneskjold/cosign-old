@@ -85,6 +85,8 @@ function spec(b) {
     s += "inputtxs.clear\tClear list of input transactions\n";
     s += "multisig N-REQUIRED KEY1 KEY2 KEY3...\n\t\tBegin new multi-sig tx\n";
     s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
+    s += "redeem.create\tCreate redeem script\n";
+    s += "redeem.clear\tClear redeem script\n";
     s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
     s += "outputs.clear\tClear list of TX outputs\n";
     s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
@@ -173,6 +175,16 @@ function spec(b) {
   {
     parse_nreq(1);
     write_datastore(function(err) {});
+  }
+
+  Cosign.prototype.cmd_redeem_create = function()
+  {
+    var pubkeys = [];
+    for (var i in this.datastore['pubkeys'])
+      pubkeys[i] = new Buffer(this.datastore['pubkeys'][i], 'hex');
+    var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
+    this.datastore.redeemScript = script.buffer.toString('hex');
+    this.write_datastore(function() {});
   }
   
   Cosign.prototype.ds_push_pubkey = function(pubkeyStr)
@@ -825,6 +837,14 @@ function spec(b) {
     
     case "nreq":
       this.cmd_nreq();
+      break;
+
+    case "redeem.create":
+      this.cmd_redeem_create();
+      break;
+    case "redeem.clear":
+      delete this.datastore['redeemScript'];
+      this.write_datastore(function(err) {});
       break;
   
     case "outputs":
