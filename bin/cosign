@@ -907,11 +907,9 @@ function spec(b) {
         throw new Error("Missing required address param");
       this.cmd_pubkey_get(this.program.args[1]);
       break;
-  
     case "pubkeys":
       this.cmd_pubkeys();
       break;
-  
     case "pubkeys.clear":
       delete this.datastore['pubkeys'];
       this.write_datastore(function(err) {});
