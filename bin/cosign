@@ -86,6 +86,7 @@ function spec(b) {
     s += "multisig N-REQUIRED KEY1 KEY2 KEY3...\n\t\tBegin new multi-sig tx\n";
     s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
     s += "redeem.create\tCreate redeem script\n";
+    s += "redeem.validate\tValidate that redeem script matches public keys and nreq\n"
     s += "redeem.clear\tClear redeem script\n";
     s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
     s += "outputs.clear\tClear list of TX outputs\n";
@@ -185,6 +186,28 @@ function spec(b) {
     var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
     this.datastore.redeemScript = script.buffer.toString('hex');
     this.write_datastore(function() {});
+  }
+
+  Cosign.prototype.cmd_redeem_validate_internal = function()
+  {
+    var pubkeys = [];
+    for (var i in this.datastore['pubkeys'])
+      pubkeys[i] = new Buffer(this.datastore['pubkeys'][i], 'hex');
+    var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
+    var hex = script.buffer.toString('hex');
+    if (hex == this.datastore.redeemScript)
+      return true;
+    else
+      return false;
+  }
+
+  Cosign.prototype.cmd_redeem_validate = function()
+  {
+    var match = this.cmd_redeem_validate_internal();
+    if (match)
+      console.log('Success.');
+    else
+      console.log('Failure. Rebuild redeem script.');
   }
   
   Cosign.prototype.ds_push_pubkey = function(pubkeyStr)
@@ -841,6 +864,9 @@ function spec(b) {
 
     case "redeem.create":
       this.cmd_redeem_create();
+      break;
+    case "redeem.validate":
+      this.cmd_redeem_validate();
       break;
     case "redeem.clear":
       delete this.datastore['redeemScript'];
