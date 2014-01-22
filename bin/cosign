@@ -84,19 +84,19 @@ function spec(b) {
     s += "init\t\tInitialize new transaction state database\n";
     s += "inputs TXID1 VOUT1 TXID2 VOUT2...\n\t\tAppend inputs to TX\n";
     s += "inputs.clear\tClear list of inputs\n";
-    s += "inputtxs.get\tRetrieve the full transactions for each input\n";
     s += "inputtxs.clear\tClear list of input transactions\n";
+    s += "inputtxs.get\tRetrieve the full transactions for each input\n";
     s += "multisig N-REQUIRED KEY1 KEY2 KEY3...\n\t\tBegin new multi-sig tx\n";
     s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
+    s += "redeem.clear\tClear redeem script\n";
     s += "redeem.create\tCreate redeem script\n";
     s += "redeem.validate\tValidate that redeem script matches public keys and nreq\n"
-    s += "redeem.clear\tClear redeem script\n";
     s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
     s += "outputs.clear\tClear list of TX outputs\n";
     s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
     s += "pubkeys KEY1 KEY2 KEY3...\n\t\tAdd to list of pubkeys / bitcoin addresses\n";
-    s += "pubkeys.validate Validate which pubkeys for which you have the private key\n";
     s += "pubkeys.clear\tClear list of pubkeys\n";
+    s += "pubkeys.validate Validate which pubkeys for which you have the private key\n";
     s += "raw SERIALIZED-TX\n\t\tInput serialized transaction from command line\n";
     s += "raw.append FILE\tAppend FILE to serialized transaction data\n";
     s += "raw.clear\tClear serialized tx data\n";
@@ -920,12 +920,12 @@ function spec(b) {
       this.write_datastore(function(err) {});
       break;
 
-    case "inputtxs.get":
-      this.cmd_inputtxs_get();
-      break;
     case "inputtxs.clear":
       delete this.datastore['inputtxs'];
       this.write_datastore(function(err) {});
+      break;
+    case "inputtxs.get":
+      this.cmd_inputtxs_get();
       break;
   
     case "multisig":
@@ -936,15 +936,15 @@ function spec(b) {
       this.cmd_nreq();
       break;
 
+    case "redeem.clear":
+      delete this.datastore['redeemScript'];
+      this.write_datastore(function(err) {});
+      break;
     case "redeem.create":
       this.cmd_redeem_create();
       break;
     case "redeem.validate":
       this.cmd_redeem_validate();
-      break;
-    case "redeem.clear":
-      delete this.datastore['redeemScript'];
-      this.write_datastore(function(err) {});
       break;
   
     case "outputs":
