@@ -95,7 +95,7 @@ function spec(b) {
     s += "outputs.clear\tClear list of TX outputs\n";
     s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
     s += "pubkeys KEY1 KEY2 KEY3...\n\t\tAdd to list of pubkeys / bitcoin addresses\n";
-    s += "pubkeys.check\tCheck for which pubkeys you have the privkey\n";
+    s += "pubkeys.validate Validate which pubkeys for which you have the private key\n";
     s += "pubkeys.clear\tClear list of pubkeys\n";
     s += "raw SERIALIZED-TX\n\t\tInput serialized transaction from command line\n";
     s += "raw.append FILE\tAppend FILE to serialized transaction data\n";
