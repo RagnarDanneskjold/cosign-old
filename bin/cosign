@@ -260,7 +260,7 @@ function spec(b) {
     this.write_datastore(function(err) {});
   }
 
-  Cosign.prototype.cmd_pubkeys_check_file = function()
+  Cosign.prototype.cmd_pubkeys_validate_file = function()
   {
     for (var i in this.datastore.pubkeys) {
       var pubkey = this.datastore.pubkeys[i];
@@ -291,18 +291,18 @@ function spec(b) {
     }
   }
 
-  Cosign.prototype.cmd_pubkeys_check_rpc = function()
+  Cosign.prototype.cmd_pubkeys_validate_rpc = function()
   {
     console.log('Not implemented yet.');
   }
 
-  Cosign.prototype.cmd_pubkeys_check = function()
+  Cosign.prototype.cmd_pubkeys_validate = function()
   {
     var self = this;
     if (this.wallet)
-      this.cmd_pubkeys_check_file();
+      this.cmd_pubkeys_validate_file();
     else
-      this.cmd_pubkeys_check_rpc();
+      this.cmd_pubkeys_validate_rpc();
   }
   
   Cosign.prototype.cmd_inputs = function()
@@ -963,8 +963,8 @@ function spec(b) {
     case "pubkeys":
       this.cmd_pubkeys();
       break;
-    case "pubkeys.check":
-      this.cmd_pubkeys_check();
+    case "pubkeys.validate":
+      this.cmd_pubkeys_validate();
       break;
     case "pubkeys.clear":
       delete this.datastore['pubkeys'];
