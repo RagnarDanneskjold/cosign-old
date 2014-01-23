@@ -1,841 +1,865 @@
 #!/usr/bin/env node
 // MIT/X11-like license.  See LICENSE.txt.
 // Copyright 2013 BitPay, Inc.
-
-var buffertools = require('buffertools');
-var fs = require('fs');
-var program = require('commander');
-var BitcoinRPC = require('bitcore/RpcClient').class();
-var Transaction = require('bitcore/Transaction').class();
-var Address = require('bitcore/Address').class();
-var Wallet = require('bitcore/Wallet').class();
-var WalletKey = require('bitcore/WalletKey').class();
-var Script = require('bitcore/Script').class();
-var coinUtil = require('bitcore/util/util');
-var Parser = require('bitcore/util/BinaryParser').class();
-var async = require('async');
-var bignum = require('bignum');
-var TXTOOL_VERSION = '0.2';
-
-program
-  .version(TXTOOL_VERSION)
-  .option('-f, --file [file]', 'Load/store transaction state to/from JSON file [txstatedb.json]', 'txstatedb.json')
-  .option('-P, --pass [passphrase]', 'AES wallet passphrase')
-  .option('-w, --wallet [file]', 'AES wallet filename')
-  .option('--rpcport [port]', 'Bitcoind RPC port [18332]', Number, 18332)
-  .option('--rpcuser [user]', 'Bitcoind RPC user [user]', String, 'user')
-  .option('--rpcpass [password]', 'Bitcoind RPC password [pass]', String, 'pass')
-  .parse(process.argv);
-
-var rpc = new BitcoinRPC({
-    'port' : program.rpcport,
-    'user' : program.rpcuser,
-    'pass' : program.rpcpass,
-    'protocol' : 'http'
-});
-
-var statedb_fn = program.file;
-
-// Our empty wallet defaults
-var wallet = undefined;
-var network = undefined;
-
-var datastore = {};
-
-function network_load(netname)
-{
-  wallet.setNetwork(netname);
-  network = wallet.network;
-}
-
-function wallet_load(filename)
-{
-  wallet.readSync(filename, program.pass);
-  network_load(wallet.datastore.network);
-}
-
-function wallet_store()
-{
-  wallet.writeSync(program.wallet, program.pass);
-}
-
-if (program.wallet) {
-  var wallet = new Wallet();
-  wallet.datastore.client = 'cosign';
-  wallet.datastore.client_version = TXTOOL_VERSION;
-  wallet.datastore.network = 'livenet';
-
-  wallet_load(program.wallet);
-}
-
-function list_commands()
-{
-  var s = "cosign command summary:\n";
-  s += "clean\t\tRemove transaction state database\n";
-  s += "dump\t\tInspect internal transaction state\n";
-  s += "help\t\tList this command summary\n";
-  s += "init\t\tInitialize new transaction state database\n";
-  s += "inputs TXID1 VOUT1 TXID2 VOUT2...\n\t\tAppend inputs to TX\n";
-  s += "inputs.clear\tClear list of inputs\n";
-  s += "multisig N-REQUIRED KEY1 KEY2 KEY3...\n\t\tBegin new multi-sig tx\n";
-  s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
-  s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
-  s += "outputs.clear\tClear list of TX outputs\n";
-  s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
-  s += "pubkeys KEY1 KEY2 KEY3...\n\t\tAdd to list of pubkeys / bitcoin addresses\n";
-  s += "pubkeys.clear\tClear list of pubkeys\n";
-  s += "raw SERIALIZED-TX\n\t\tInput serialized transaction from command line\n";
-  s += "raw.append FILE\tAppend FILE to serialized transaction data\n";
-  s += "raw.clear\tClear serialized tx data\n";
-  s += "raw.create\tCreate raw tx, given inputs/outputs parameters\n";
-  s += "raw.decode\tDecode raw tx, to JSON object\n";
-  s += "raw.get TXID\tGet raw tx, given hash txid\n";
-  s += "raw.read FILE\tInput serialized transaction from file\n";
-  s += "raw.send\tSend raw tx to network via RPC\n";
-  s += "raw.sign [anyonecanpay]\tSign transaction, if possible\n";
-  s += "raw.write FILE\tOutput serialize transaction to file\n";
-  s += "wallet.msig\tCommit in-memory multisig data to wallet,\n\t\treturning a multisig payment address.\n";
-  console.log(s);
-}
-
-function remove_database(callback)
-{
-  fs.exists(statedb_fn, function(exists) {
-    if (exists)
-      fs.unlink(statedb_fn, function(err) {
-        if (err) throw err;
-        callback();
-      });
-  });
-}
-
-function write_datastore(callback)
-{
-  var tmp_fn = statedb_fn + ".tmp";
-
-  fs.writeFile(tmp_fn, JSON.stringify(datastore), function(err) {
-    if (err) throw err;
-    fs.rename(tmp_fn, statedb_fn, callback);
-  });
-}
-
-function parse_nreq(idx)
-{
-  if (idx >= program.args.length) {
-    throw new Error("N-Required argument missing");
-  }
-
-  var re = /^\d+$/;
-  var arg = program.args[idx];
-  if (!re.test(arg)) {
-    throw new Error("Invalid N-Required argument");
-  }
-
-  var n_req = parseInt(arg, 10);
-  if (n_req < 1 || n_req > 50) {
-    throw new Error("Out of range N-Required arg");
-  }
-
-  datastore['n_required'] = n_req;
-}
-
-function parse_pubkeys(start_idx)
-{
-  // init 'pubkeys'
-  if (datastore['pubkeys'] == undefined)
-    datastore['pubkeys'] = [];
-
-  // append to list of pubkeys
-  for (var i = start_idx; i < program.args.length; i++) {
-    datastore['pubkeys'].push(String(program.args[i]));
-  }
-}
-
-function cmd_multisig()
-{
-  parse_nreq(1);
-
-  datastore['pubkeys'] = [];  // clear, if not already
-  parse_pubkeys(2);
-
-  write_datastore(function(err) {});
-}
-
-function cmd_nreq()
-{
-  parse_nreq(1);
-  write_datastore(function(err) {});
-}
-
-function ds_push_pubkey(pubkeyStr)
-{
-  if (datastore['pubkeys'] == undefined)
-    datastore['pubkeys'] = [];
-
-  datastore['pubkeys'].push(pubkeyStr);
-
-  console.log(pubkeyStr);
-}
-
-function pubkey_get_cb(err, resp)
-{
-  if (err) throw new Error(err['message']);
-  if (!resp['result']['pubkey'])
-    throw new Error("Unable to obtain pubkey from RPC wallet");
-
-  ds_push_pubkey(String(resp['result']['pubkey']));
-  write_datastore(function(err) {});
-}
-
-function cmd_pubkey_get_file(addrStr)
-{
-  var addr = new Address(addrStr);
-  var obj = wallet.findKeyHash(addr.payload());
-  if (!obj)
-    throw new Error("Unable to obtain pubkey from wallet");
-
-  ds_push_pubkey(obj.pub);
-  write_datastore(function(err) {});
-}
-
-function cmd_pubkey_get(address)
-{
-  if (wallet)
-    cmd_pubkey_get_file(address);
-  else
-    rpc.validateAddress(address, pubkey_get_cb);
-}
-
-function cmd_pubkeys()
-{
-  parse_pubkeys(1);
-  write_datastore(function(err) {});
-}
-
-function cmd_inputs()
-{
-  if (datastore['inputs'] == undefined)
-    datastore['inputs'] = [];
-
-  for (var i = 1; i < program.args.length; i += 2) {
-    var txid = String(program.args[i]);
-    var vout = program.args[i + 1];
-    var obj = {
-      'txid' : txid,
-      'vout' : vout
-    };
-
-    datastore['inputs'].push(obj);
-  }
-
-  write_datastore(function(err) {});
-}
-
-function cmd_outputs()
-{
-  if (datastore['outputs'] == undefined)
-    datastore['outputs'] = {};
-
-  for (var i = 1; i < program.args.length; i += 2) {
-    var addr = String(program.args[i]);
-    var value = program.args[i + 1];
-
-    datastore['outputs'][addr] = value;
-  }
-
-  write_datastore(function(err) {});
-}
-
-function cmd_raw(in_str, append)
-{
-  var re = new RegExp('([\\da-fA-F]+)');
-  in_str = String(in_str);
-  var matches = in_str.match(re);
-  if (matches == null)
-    throw new Error("Hex transaction data not supplied");
-
-  var hexstr = matches[1];
-  if (append && datastore['raw'])
-    datastore['raw'] += hexstr;
-  else
-    datastore['raw'] = hexstr;
-
-  write_datastore(function(err) {});
-}
-
-function cmd_raw_create_internal()
-{
-  var txobj = {};
-  txobj.version = 1;
-  txobj.lock_time = 0;
-  txobj.ins = [];
-  txobj.outs = [];
-
-  datastore.inputs.forEach(function(inputobj) {
-    var txin = {};
-    txin.s = coinUtil.EMPTY_BUFFER;
-    txin.q = 0xffffffff;
-
-    var hash = new Buffer(inputobj.txid, 'hex');
-    buffertools.reverse(hash);
-    var vout = parseInt(inputobj.vout);
-    var voutBuf = new Buffer(4);
-    voutBuf.writeUInt32LE(vout, 0);
-
-    txin.o = Buffer.concat([hash, voutBuf]);
-
-    txobj.ins.push(txin);
-  });
-
-  var keys = Object.keys(datastore.outputs);
-  keys.forEach(function(addrStr) {
-    var addr = new Address(addrStr);
-    var script = Script.createPubKeyHashOut(addr.payload());
-
-    var valueNum = coinUtil.parseValue(datastore.outputs[addrStr]);
-    var value = coinUtil.bigIntToValue(valueNum);
-
-    var txout = {
-      v: value,
-      s: script.getBuffer(),
-    };
-
-    txobj.outs.push(txout);
-  });
-
-  var tx = new Transaction(txobj);
-  cmd_raw(tx.serialize().toString('hex'), false);
-}
-
-function cmd_raw_create()
-{
-  if (!datastore['inputs'] || !datastore['outputs'])
-    throw new Error("missing inputs and/or outputs");
-
-  cmd_raw_create_internal();
-}
-
-function raw_decode_cb(err, resp)
-{
-  if (err) throw new Error(err['message']);
-  console.log(coinUtil.inspect(resp['result'], {'depth':1000}));
-}
-
-function cmd_raw_decode()
-{
-  if (!datastore['raw'])
-    throw new Error("Missing raw transaction");
-
-  rpc.decodeRawTransaction(datastore['raw'], raw_decode_cb);
-}
-
-function raw_get_cb(err, resp)
-{
-  if (err) throw new Error(err['message']);
-  cmd_raw(resp['result'], false);
-}
-
-function cmd_raw_get(txid)
-{
-  rpc.getRawTransaction(txid, raw_get_cb);
-}
-
-function raw_append_cb(err, data)
-{
-  if (err) throw err;
-  cmd_raw(data, true);
-}
-
-function cmd_raw_append(filename)
-{
-  fs.readFile(filename, {'encoding':'utf8'}, raw_append_cb);
-}
-
-function raw_read_cb(err, data)
-{
-  if (err) throw err;
-  cmd_raw(data, false);
-}
-
-function cmd_raw_read(filename)
-{
-  fs.readFile(filename, {'encoding':'utf8'}, raw_read_cb);
-}
-
-function raw_send_cb(err, resp)
-{
-  if (err) throw new Error(err['message']);
-  console.log(resp['result']);
-}
-
-function cmd_raw_send()
-{
-  if (!datastore['raw'])
-    throw new Error("Missing raw transaction");
-
-  rpc.sendRawTransaction(datastore['raw'], raw_send_cb);
-}
-
-function cmd_raw_sign_pubkeyhash(anypay, tx, i, scriptPubKey, txSigHash)
-{
-  var pubKeyHash = scriptPubKey.captureOne();
-  var wkey = wallet.findKeyHash(pubKeyHash);
-  if (!wkey)
-    return 0;    // did no work; signed nothing
-
-  var wkey = new WalletKey({network: network});
-  wkey.fromObj(wkeyObj);
-
-  var sigRaw = wkey.privKey.signSync(txSigHash);
-
-  var sigType = new Buffer(1);
-  sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
-
-  var sig = Buffer.concat([sigRaw, sigType]);
-
-  var scriptSig = new Script();
-  scriptSig.chunks.push(sig);
-  scriptsig.chunks.push(wkey.privKey.public);
-  scriptSig.updateBuffer();
-
-  tx.ins[i].s = scriptSig.getBuffer();
-
-  return 1;      // signed 1 signature
-}
-
-function pubkeyHexHash(pubkeyHex)
-{
-  var pubkey = new Buffer(pubkeyHex, 'hex');
-  var pubKeyHash = coinUtil.sha256ripe160(pubkey);
-  return pubKeyHash;
-}
-
-function findByPubkey(pubkeyHex)
-{
-  var pkh = pubkeyHexHash(pubkeyHex);
-  var wkey = wallet.findKeyHash(pkh);
-  return wkey;
-}
-
-function cmd_raw_sign_pubkey(anypay, tx, i, scriptPubKey, txSigHash)
-{
-  var pubkey = scriptPubKey.captureOne();
-  var pubKeyHash = coinUtil.sha256ripe160(pubkey);
-  var wkeyObj = wallet.findKeyHash(pubKeyHash);
-  if (!wkeyObj)
-    return 0;    // did no work; signed nothing
-
-  var wkey = new WalletKey({network: network});
-  wkey.fromObj(wkeyObj);
-
-  var sigRaw = wkey.privKey.signSync(txSigHash);
-
-  var sigType = new Buffer(1);
-  sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
-
-  var sig = Buffer.concat([sigRaw, sigType]);
-
-  var scriptSig = new Script();
-  scriptSig.chunks.push(sig);
-  scriptSig.updateBuffer();
-
-  tx.ins[i].s = scriptSig.getBuffer();
-
-  return 1;      // signed 1 signature
-}
-
-function updateMultiSig(scriptSigBuf, sig, index, n_keys)
-{
-  if (!scriptSigBuf)
-    scriptSigBuf = coinUtil.EMPTY_BUFFER;
-  var scriptSig = new Script(scriptSigBuf);
-
-  if (scriptSig.chunks.length < n_keys) {
-    while (scriptSig.chunks.length < n_keys)
-      scriptSig.chunks.push(coinUtil.EMPTY_BUFFER);
-  }
+require('classtool');
+
+function spec(b) {
+
+  var buffertools = b.buffertools || require('buffertools');
+  var fs = b.fs || require('fs');
+  var BitcoinRPC = b.BitcoinRPC || require('bitcore/RpcClient').class();
+  var Transaction = b.Transaction || require('bitcore/Transaction').class();
+  var Address = b.Address || require('bitcore/Address').class();
+  var Wallet = b.Wallet || require('bitcore/Wallet').class();
+  var WalletKey = b.WalletKey || require('bitcore/WalletKey').class();
+  var Script = b.Script || require('bitcore/Script').class();
+  var coinUtil = b.coinUtil || require('bitcore/util/util');
+  var Parser = b.Parser || require('bitcore/util/BinaryParser').class();
+  var async = b.async || require('async');
+  var bignum = b.bignum || require('bignum');
+  var program = b.program || require('commander');
+  var TXTOOL_VERSION = '0.2';
   
-  scriptSig.chunks[index] = sig;
-  scriptSig.updateBuffer();
+  function Cosign(argv) {
+    var self = this;
+    if (!argv)
+      argv = process.argv;
+    this.program = program;
+    this.program
+      .version(TXTOOL_VERSION)
+      .option('-f, --file [file]', 'Load/store transaction state to/from JSON file [txstatedb.json]', 'txstatedb.json')
+      .option('-P, --pass [passphrase]', 'AES wallet passphrase')
+      .option('-w, --wallet [file]', 'AES wallet filename')
+      .option('--rpcport [port]', 'Bitcoind RPC port [18332]', Number, 18332)
+      .option('--rpcuser [user]', 'Bitcoind RPC user [user]', String, 'user')
+      .option('--rpcpass [password]', 'Bitcoind RPC password [pass]', String, 'pass')
+      .parse(argv);
 
-  return scriptSig.getBuffer();
-}
+    this.rpc = new BitcoinRPC({
+        'port' : self.program.rpcport,
+        'user' : self.program.rpcuser,
+        'pass' : self.program.rpcpass,
+        'protocol' : 'http'
+    });
+    console.log('pass: ' + this.program.pass);
+  
+    this.statedb_fn = this.program.file;
+    
+    // Our empty wallet defaults
+    this.wallet = undefined;
+    this.network = undefined;
+    
+    this.datastore = {};
+    
+    if (this.program.wallet) {
+      this.wallet = new Wallet();
+      this.wallet.datastore.client = 'cosign';
+      this.wallet.datastore.client_version = TXTOOL_VERSION;
+      this.wallet.datastore.network = 'livenet';
+    
+      //wallet load
+      this.wallet.readSync(this.program.wallet, this.program.pass);
 
-function cmd_raw_sign_multisig(anypay, tx, i, scriptPubKey, txSigHash)
-{
-  var pubkeys = scriptPubKey.capture();
-  var wkeys = {};
-  var index = 0;
-  var n_signed = 0;
-  pubkeys.forEach(function(pubkey) {
-    var pubKeyHash = coinUtil.sha256ripe160(pubkey);
-    var wkeyObj = wallet.findKeyHash(pubKeyHash);
-    if (wkeyObj) {
-      var wkey = new WalletKey({network: network});
-      wkey.fromObj(wkeyObj);
-
-      var sigRaw = wkey.privKey.signSync(txSigHash);
-
-      var sigType = new Buffer(1);
-      sigType[0] = anypay? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
-
-      var sig = Buffer.concat([sigRaw, sigType]);
-
-      tx.ins[i].s = updateMultiSig(tx.ins[i].s, sig,
-            index, pubkeys.length);
-      n_signed++;
+      //network load
+      this.wallet.setNetwork(this.wallet.datastore.network);
+      this.network = this.wallet.network;
     }
-
-    index++;
-  });
-
-  return n_signed;
-}
-
-function cmd_raw_sign_scripthash(anypay, tx, i, scriptPubKey, txSigHash)
-{
-  var scriptHash = scriptPubKey.capture()[0];
-  var addr = new Address(network.addressScript, scriptHash);
-  var addrStr = addr.as('base58');
-  if (!(addrStr in wallet.datastore.scripts))
-    return;
-
-  var scriptHex = wallet.datastore.scripts[addrStr];
-  var scriptBuf = new Buffer(scriptHex, 'hex');
-  var scriptPubKey = new Script(scriptBuf);
-  var scriptType = scriptPubKey.classify();
-  var rc = -1;
-
-  var txSigHash = tx.hashForSignature(scriptPubKey, i,
-               anypay ? Transaction.SIGHASH_ANYONECANPAY :
-               Transaction.SIGHASH_ALL);
-  switch (scriptType) {
-  case Script.TX_PUBKEYHASH:
-    rc = cmd_raw_sign_pubkeyhash(anypay, tx, i, scriptPubKey, txSigHash);
-    break;
-  case Script.TX_MULTISIG:
-    rc = cmd_raw_sign_multisig(anypay, tx, i, scriptPubKey, txSigHash);
-    break;
-  case Script.TX_PUBKEY:
-    rc = cmd_raw_sign_pubkey(anypay, tx, i, scriptPubKey, txSigHash);
-    break;
-  default:
-    return -1;
   }
+  this.class = Cosign;
 
-  var scriptSigBuf = tx.ins[i].s;
-  var scriptSig = new Script(scriptSigBuf);
-  var len = scriptSig.chunks.length;
-  var scriptBufNotAlreadyAppended = scriptSig.chunks[len-1] !== undefined && (typeof scriptSig.chunks[len-1] == "number" || scriptSig.chunks[len-1].toString('hex') != scriptBuf.toString('hex'));
-  if (rc > 0 && scriptBufNotAlreadyAppended) {
-    scriptSig.chunks.push(scriptBuf);
-    scriptSig.updateBuffer();
-    tx.ins[i].s = scriptSig.getBuffer();
-  }
-
-  if (scriptType == Script.TX_MULTISIG && scriptSig.finishedMultiSig())
+  Cosign.prototype.wallet_store = function()
   {
-    scriptSig.removePlaceHolders();
-    scriptSig.prependOp0();
-    tx.ins[i].s = scriptSig.getBuffer();
+    this.wallet.writeSync(this.program.wallet, this.program.pass);
+  }
+    
+  Cosign.prototype.list_commands = function()
+  {
+    var s = "cosign command summary:\n";
+    s += "clean\t\tRemove transaction state database\n";
+    s += "dump\t\tInspect internal transaction state\n";
+    s += "help\t\tList this command summary\n";
+    s += "init\t\tInitialize new transaction state database\n";
+    s += "inputs TXID1 VOUT1 TXID2 VOUT2...\n\t\tAppend inputs to TX\n";
+    s += "inputs.clear\tClear list of inputs\n";
+    s += "multisig N-REQUIRED KEY1 KEY2 KEY3...\n\t\tBegin new multi-sig tx\n";
+    s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
+    s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
+    s += "outputs.clear\tClear list of TX outputs\n";
+    s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
+    s += "pubkeys KEY1 KEY2 KEY3...\n\t\tAdd to list of pubkeys / bitcoin addresses\n";
+    s += "pubkeys.clear\tClear list of pubkeys\n";
+    s += "raw SERIALIZED-TX\n\t\tInput serialized transaction from command line\n";
+    s += "raw.append FILE\tAppend FILE to serialized transaction data\n";
+    s += "raw.clear\tClear serialized tx data\n";
+    s += "raw.create\tCreate raw tx, given inputs/outputs parameters\n";
+    s += "raw.decode\tDecode raw tx, to JSON object\n";
+    s += "raw.get TXID\tGet raw tx, given hash txid\n";
+    s += "raw.read FILE\tInput serialized transaction from file\n";
+    s += "raw.send\tSend raw tx to network via RPC\n";
+    s += "raw.sign [anyonecanpay]\tSign transaction, if possible\n";
+    s += "raw.write FILE\tOutput serialize transaction to file\n";
+    s += "wallet.msig\tCommit in-memory multisig data to wallet,\n\t\treturning a multisig payment address.\n";
+    console.log(s);
   }
   
-  return rc;
-
-}
-
-function cmd_raw_sign_internal2(anypay, tx, inputIdx, scriptObj)
-{
-  // console.dir(tx);
-  var txin = tx.ins[inputIdx];
-  if (!txin)
-    return -2;  // invalid?
-
-  var scriptBuf = new Buffer(scriptObj['hex'], 'hex');
-  var scriptPubKey = new Script(scriptBuf);
-  var scriptType = scriptPubKey.classify();
-  if (txin.s.length > 0 && scriptType!=Script.TX_SCRIPTHASH && scriptType!=Script.TX_MULTISIG)
-    return -1;  // already signed, did no work
-  var rc = -1;
-
-  var txSigHash = tx.hashForSignature(scriptPubKey, inputIdx,
-               anypay ? Transaction.SIGHASH_ANYONECANPAY :
-               Transaction.SIGHASH_ALL);
-  switch (scriptType) {
-  case Script.TX_UNKNOWN:
-    break;
-  case Script.TX_PUBKEYHASH:
-    rc = cmd_raw_sign_pubkeyhash(anypay, tx, inputIdx, scriptPubKey, txSigHash);
-    break;
-  case Script.TX_SCRIPTHASH:
-    rc = cmd_raw_sign_scripthash(anypay, tx, inputIdx, scriptPubKey, txSigHash);
-    break;
-  case Script.TX_MULTISIG:
-    rc = cmd_raw_sign_multisig(anypay, tx, inputIdx, scriptPubKey, txSigHash);
-    break;
-  case Script.TX_PUBKEY:
-    rc = cmd_raw_sign_pubkey(anypay, tx, inputIdx, scriptPubKey, txSigHash);
-    break;
-  }
-  
-  return 0;    // did no work; signed nothing
-}
-
-function cmd_raw_sign_internal(anypay)
-{
-  var rawbuf = new Buffer(datastore['raw'], 'hex');
-  var parser = new Parser(rawbuf);
-  var tx = new Transaction();
-  tx.parse(parser);
-  var inputs = tx.inputs();
-
-  var inputIdx = 0;
-  var f=[];
-  do {
-    (function(){
-      var inputIdxCopy = inputIdx;
-      f[inputIdxCopy] = function(callback) {
-        var input = inputs[inputIdxCopy];
-        var hashStr = coinUtil.formatHashFull(input[0]);
-        rpc.getTxOut(hashStr, input[1], function(err, resp) {
-          if (err) throw new Error(err['message']);
-
-          var rpcres = resp['result'];
-          var scriptObj = rpcres['scriptPubKey'];
-
-          var rc = cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
-
+  Cosign.prototype.remove_database = function(callback)
+  {
+    var self = this;
+    fs.exists(self.statedb_fn, function(exists) {
+      if (exists)
+        fs.unlink(self.statedb_fn, function(err) {
+          if (err) throw err;
           callback();
-          // console.log("int2 rc = ", rc);
         });
-      }
-    })();
-
-    inputIdx++;
-  } while (inputIdx < inputs.length);
+    });
+  }
   
-  async.series(f,function(err){raw_sign_wallet_cb(err, tx)});
-}
-
-function raw_sign_wallet_cb(err, tx)
-{
-  if (err) throw new Error(err['message']);
-  datastore['raw'] = tx.serialize().toString('hex');
-  write_datastore(function(err){});
-}
-
-function raw_sign_cb(err, resp)
-{
-  if (err) throw new Error(err['message']);
-  var result = resp['result'];
-  var hexstr = result['hex'];
-  var complete = result['complete'];
-
-  console.log(complete ? "sigs:complete" : "sigs:partial");
-
-  if (hexstr != datastore['raw']) {
-    datastore['raw'] = hexstr;
-    console.log("raw:updated");
-    write_datastore(function(err) {});
-  } else
-    console.log("raw:unchanged");
-}
-
-function cmd_raw_sign(start_idx)
-{
-  if (!datastore['raw'])
-    throw new Error("Missing raw transaction");
-
-  var anypay = false;
-
-  // scan list of command line options
-  for (var i = start_idx; i < program.args.length; i++) {
-    switch (program.args[i]) {
-    case "anyonecanpay":
-      anypay = true;
-      break;
-
-    default:
-      throw new Error("Unknown raw.sign option");
+  Cosign.prototype.write_datastore = function(callback)
+  {
+    var self = this;
+    var tmp_fn = this.statedb_fn + ".tmp";
+  
+    fs.writeFile(tmp_fn, JSON.stringify(this.datastore), function(err) {
+      if (err) throw err;
+      fs.rename(tmp_fn, self.statedb_fn, callback);
+    });
+  }
+  
+  Cosign.prototype.parse_nreq = function(idx)
+  {
+    if (idx >= this.program.args.length) {
+      throw new Error("N-Required argument missing");
+    }
+  
+    var re = /^\d+$/;
+    var arg = this.program.args[idx];
+    if (!re.test(arg)) {
+      throw new Error("Invalid N-Required argument");
+    }
+  
+    var n_req = parseInt(arg, 10);
+    if (n_req < 1 || n_req > 50) {
+      throw new Error("Out of range N-Required arg");
+    }
+  
+    this.datastore['n_required'] = n_req;
+  }
+  
+  Cosign.prototype.parse_pubkeys = function(start_idx)
+  {
+    // init 'pubkeys'
+    if (this.datastore['pubkeys'] == undefined)
+      this.datastore['pubkeys'] = [];
+  
+    // append to list of pubkeys
+    for (var i = start_idx; i < this.program.args.length; i++) {
+      this.datastore['pubkeys'].push(String(this.program.args[i]));
     }
   }
-
-  if (wallet)
-    cmd_raw_sign_internal(anypay)
-  else
-    rpc.signRawTransaction(datastore['raw'], null, null,
-               anypay ? 'ALL|ANYONECANPAY' : 'ALL',
-               raw_sign_cb);
-}
-
-function cmd_raw_write(filename)
-{
-  if (datastore['raw'] == undefined)
-    throw new Error("No raw transaction data stored in memory");
   
-  fs.writeFile(filename, datastore['raw'], function(err) {});
-}
-
-function wallet_msig_cb(err, resp)
-{
-  if (err) throw new Error(err['message']);
-  console.log(resp['result']);
-}
-
-function cmd_wallet_msig_rpc()
-{
-  rpc.addMultiSigAddress(datastore['n_required'], datastore['pubkeys'],
-             wallet_msig_cb);
-}
-
-function cmd_wallet_msig_file()
-{
-  var pubkeys = wallet.expandKeys(datastore['pubkeys']);
-  var script = Script.createMultisig(datastore['n_required'], pubkeys);
-  var addrStr = wallet.addScript(script);
-  wallet_store();
-  console.log(addrStr);
-}
-
-function cmd_wallet_msig()
-{
-  if (!datastore['n_required'] || !datastore['pubkeys'])
-    throw new Error("Missing N-Required and/or pubkeys");
-
-  if (wallet)
-    cmd_wallet_msig_file();
-  else
-    cmd_wallet_msig_rpc();
-}
-
-function main()
-{
-  if (program.args.length == 0) {
-    console.error("No command specified.");
-    list_commands();
-    return;
+  Cosign.prototype.cmd_multisig = function()
+  {
+    parse_nreq(1);
+  
+    this.datastore['pubkeys'] = [];  // clear, if not already
+    parse_pubkeys(2);
+  
+    write_datastore(function(err) {});
   }
-
-  var cmd = program.args[0];
   
-  if (cmd != 'init' && cmd != 'help' && cmd != 'clean') {
-    try {
-      datastore = JSON.parse(fs.readFileSync(statedb_fn));
-    } catch(e) {
-      console.error(statedb_fn, "must be a valid JSON file.  Run 'init' command to create a new one.");
+  Cosign.prototype.cmd_nreq = function()
+  {
+    parse_nreq(1);
+    write_datastore(function(err) {});
+  }
+  
+  Cosign.prototype.ds_push_pubkey = function(pubkeyStr)
+  {
+    if (this.datastore['pubkeys'] == undefined)
+      this.datastore['pubkeys'] = [];
+  
+    this.datastore['pubkeys'].push(pubkeyStr);
+  
+    console.log(pubkeyStr);
+  }
+  
+  Cosign.prototype.pubkey_get_cb = function(err, resp)
+  {
+    if (err) throw new Error(err['message']);
+    if (!resp['result']['pubkey'])
+      throw new Error("Unable to obtain pubkey from RPC wallet");
+  
+    ds_push_pubkey(String(resp['result']['pubkey']));
+    write_datastore(function(err) {});
+  }
+  
+  Cosign.prototype.cmd_pubkey_get_file = function(addrStr)
+  {
+    var addr = new Address(addrStr);
+    var obj = this.wallet.findKeyHash(addr.payload());
+    if (!obj)
+      throw new Error("Unable to obtain pubkey from wallet");
+  
+    this.ds_push_pubkey(obj.pub);
+    write_datastore(function(err) {});
+  }
+  
+  Cosign.prototype.cmd_pubkey_get = function(address)
+  {
+    var self = this;
+    if (this.wallet)
+      this.cmd_pubkey_get_file(address);
+    else
+      this.rpc.validateAddress(address, this.pubkey_get_cb.bind(self));
+  }
+  
+  Cosign.prototype.cmd_pubkeys = function()
+  {
+    this.parse_pubkeys(1);
+    this.write_datastore(function(err) {});
+  }
+  
+  Cosign.prototype.cmd_inputs = function()
+  {
+    if (this.datastore['inputs'] == undefined)
+      this.datastore['inputs'] = [];
+  
+    for (var i = 1; i < this.program.args.length; i += 2) {
+      var txid = String(this.program.args[i]);
+      var vout = this.program.args[i + 1];
+      var obj = {
+        'txid' : txid,
+        'vout' : vout
+      };
+  
+      this.datastore['inputs'].push(obj);
+    }
+  
+    this.write_datastore(function(err) {});
+  }
+  
+  Cosign.prototype.cmd_outputs = function()
+  {
+    if (this.datastore['outputs'] == undefined)
+      this.datastore['outputs'] = {};
+  
+    for (var i = 1; i < this.program.args.length; i += 2) {
+      var addr = String(this.program.args[i]);
+      var value = this.program.args[i + 1];
+  
+      this.datastore['outputs'][addr] = value;
+    }
+  
+    this.write_datastore(function(err) {});
+  }
+  
+  Cosign.prototype.cmd_raw = function(in_str, append)
+  {
+    var re = new RegExp('([\\da-fA-F]+)');
+    in_str = String(in_str);
+    var matches = in_str.match(re);
+    if (matches == null)
+      throw new Error("Hex transaction data not supplied");
+  
+    var hexstr = matches[1];
+    if (append && this.datastore['raw'])
+      this.datastore['raw'] += hexstr;
+    else
+      this.datastore['raw'] = hexstr;
+  
+    this.write_datastore(function(err) {});
+  }
+  
+  Cosign.prototype.cmd_raw_create_internal = function()
+  {
+    var self = this;
+    var txobj = {};
+    txobj.version = 1;
+    txobj.lock_time = 0;
+    txobj.ins = [];
+    txobj.outs = [];
+  
+    this.datastore.inputs.forEach(function(inputobj) {
+      var txin = {};
+      txin.s = coinUtil.EMPTY_BUFFER;
+      txin.q = 0xffffffff;
+  
+      var hash = new Buffer(inputobj.txid, 'hex');
+      buffertools.reverse(hash);
+      var vout = parseInt(inputobj.vout);
+      var voutBuf = new Buffer(4);
+      voutBuf.writeUInt32LE(vout, 0);
+  
+      txin.o = Buffer.concat([hash, voutBuf]);
+  
+      txobj.ins.push(txin);
+    });
+  
+    var keys = Object.keys(this.datastore.outputs);
+    keys.forEach(function(addrStr) {
+      var addr = new Address(addrStr);
+      var script = Script.createPubKeyHashOut(addr.payload());
+  
+      var valueNum = coinUtil.parseValue(self.datastore.outputs[addrStr]);
+      var value = coinUtil.bigIntToValue(valueNum);
+  
+      var txout = {
+        v: value,
+        s: script.getBuffer(),
+      };
+  
+      txobj.outs.push(txout);
+    });
+  
+    var tx = new Transaction(txobj);
+    this.cmd_raw(tx.serialize().toString('hex'), false);
+  }
+  
+  Cosign.prototype.cmd_raw_create = function()
+  {
+    if (!this.datastore['inputs'] || !this.datastore['outputs'])
+      throw new Error("missing inputs and/or outputs");
+  
+    this.cmd_raw_create_internal();
+  }
+  
+  Cosign.prototype.raw_decode_cb = function(err, resp)
+  {
+    if (err) throw new Error(err['message']);
+    console.log(coinUtil.inspect(resp['result'], {'depth':1000}));
+  }
+  
+  Cosign.prototype.cmd_raw_decode = function()
+  {
+    var self = this;
+    if (!this.datastore['raw'])
+      throw new Error("Missing raw transaction");
+  
+    this.rpc.decodeRawTransaction(self.datastore['raw'], self.raw_decode_cb.bind(self));
+  }
+  
+  Cosign.prototype.raw_get_cb = function(err, resp)
+  {
+    if (err) throw new Error(err['message']);
+    this.cmd_raw(resp['result'], false);
+  }
+  
+  Cosign.prototype.cmd_raw_get = function(txid)
+  {
+    var self = this;
+    this.rpc.getRawTransaction(txid, self.raw_get_cb.bind(self));
+  }
+  
+  Cosign.prototype.raw_append_cb = function(err, data)
+  {
+    if (err) throw err;
+    this.cmd_raw(data, true);
+  }
+  
+  Cosign.prototype.cmd_raw_append = function(filename)
+  {
+    var self = this;
+    fs.readFile(filename, {'encoding':'utf8'}, self.raw_append_cb.bind(this));
+  }
+  
+  Cosign.prototype.raw_read_cb = function(err, data)
+  {
+    if (err) throw err;
+    this.cmd_raw(data, false);
+  }
+  
+  Cosign.prototype.cmd_raw_read = function(filename)
+  {
+    var self = this;
+    fs.readFile(filename, {'encoding':'utf8'}, self.raw_read_cb.bind(this));
+  }
+  
+  Cosign.prototype.raw_send_cb = function(err, resp)
+  {
+    if (err) throw new Error(err['message']);
+    console.log(resp['result']);
+  }
+  
+  Cosign.prototype.cmd_raw_send = function()
+  {
+    var self = this;
+    if (!this.datastore['raw'])
+      throw new Error("Missing raw transaction");
+  
+    this.rpc.sendRawTransaction(self.datastore['raw'], self.raw_send_cb.bind(self));
+  }
+  
+  Cosign.prototype.cmd_raw_sign_pubkeyhash = function(anypay, tx, i, scriptPubKey, txSigHash)
+  {
+    var pubKeyHash = scriptPubKey.captureOne();
+    var wkey = this.wallet.findKeyHash(pubKeyHash);
+    if (!wkey)
+      return 0;    // did no work; signed nothing
+  
+    var wkey = new WalletKey({network: this.network});
+    wkey.fromObj(wkeyObj);
+  
+    var sigRaw = wkey.privKey.signSync(txSigHash);
+  
+    var sigType = new Buffer(1);
+    sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
+  
+    var sig = Buffer.concat([sigRaw, sigType]);
+  
+    var scriptSig = new Script();
+    scriptSig.chunks.push(sig);
+    scriptsig.chunks.push(wkey.privKey.public);
+    scriptSig.updateBuffer();
+  
+    tx.ins[i].s = scriptSig.getBuffer();
+  
+    return 1;      // signed 1 signature
+  }
+  
+  Cosign.prototype.pubkeyHexHash = function(pubkeyHex)
+  {
+    var pubkey = new Buffer(pubkeyHex, 'hex');
+    var pubKeyHash = coinUtil.sha256ripe160(pubkey);
+    return pubKeyHash;
+  }
+  
+  Cosign.prototype.findByPubkey = function(pubkeyHex)
+  {
+    var pkh = pubkeyHexHash(pubkeyHex);
+    var wkey = this.wallet.findKeyHash(pkh);
+    return wkey;
+  }
+  
+  Cosign.prototype.cmd_raw_sign_pubkey = function(anypay, tx, i, scriptPubKey, txSigHash)
+  {
+    var pubkey = scriptPubKey.captureOne();
+    var pubKeyHash = coinUtil.sha256ripe160(pubkey);
+    var wkeyObj = this.wallet.findKeyHash(pubKeyHash);
+    if (!wkeyObj)
+      return 0;    // did no work; signed nothing
+  
+    var wkey = new WalletKey({network: this.network});
+    wkey.fromObj(wkeyObj);
+  
+    var sigRaw = wkey.privKey.signSync(txSigHash);
+  
+    var sigType = new Buffer(1);
+    sigType[0] = anypay ? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
+  
+    var sig = Buffer.concat([sigRaw, sigType]);
+  
+    var scriptSig = new Script();
+    scriptSig.chunks.push(sig);
+    scriptSig.updateBuffer();
+  
+    tx.ins[i].s = scriptSig.getBuffer();
+  
+    return 1;      // signed 1 signature
+  }
+  
+  Cosign.prototype.updateMultiSig = function(scriptSigBuf, sig, index, n_keys)
+  {
+    if (!scriptSigBuf)
+      scriptSigBuf = coinUtil.EMPTY_BUFFER;
+    var scriptSig = new Script(scriptSigBuf);
+  
+    if (scriptSig.chunks.length < n_keys) {
+      while (scriptSig.chunks.length < n_keys)
+        scriptSig.chunks.push(coinUtil.EMPTY_BUFFER);
+    }
+    
+    scriptSig.chunks[index] = sig;
+    scriptSig.updateBuffer();
+  
+    return scriptSig.getBuffer();
+  }
+  
+  Cosign.prototype.cmd_raw_sign_multisig = function(anypay, tx, i, scriptPubKey, txSigHash)
+  {
+    var self = this;
+    var pubkeys = scriptPubKey.capture();
+    var wkeys = {};
+    var index = 0;
+    var n_signed = 0;
+    pubkeys.forEach(function(pubkey) {
+      var pubKeyHash = coinUtil.sha256ripe160(pubkey);
+      var wkeyObj = self.wallet.findKeyHash(pubKeyHash);
+      if (wkeyObj) {
+        var wkey = new WalletKey({network: self.network});
+        wkey.fromObj(wkeyObj);
+  
+        var sigRaw = wkey.privKey.signSync(txSigHash);
+  
+        var sigType = new Buffer(1);
+        sigType[0] = anypay? Transaction.SIGHASH_ANYONECANPAY : Transaction.SIGHASH_ALL;
+  
+        var sig = Buffer.concat([sigRaw, sigType]);
+  
+        tx.ins[i].s = self.updateMultiSig(tx.ins[i].s, sig,
+              index, pubkeys.length);
+        n_signed++;
+      }
+  
+      index++;
+    });
+  
+    return n_signed;
+  }
+  
+  Cosign.prototype.cmd_raw_sign_scripthash = function(anypay, tx, i, scriptPubKey, txSigHash)
+  {
+    var scriptHash = scriptPubKey.capture()[0];
+    var addr = new Address(this.network.addressScript, scriptHash);
+    var addrStr = addr.as('base58');
+    if (!(addrStr in this.wallet.datastore.scripts))
+      return;
+  
+    var scriptHex = this.wallet.datastore.scripts[addrStr];
+    var scriptBuf = new Buffer(scriptHex, 'hex');
+    var scriptPubKey = new Script(scriptBuf);
+    var scriptType = scriptPubKey.classify();
+    var rc = -1;
+  
+    var txSigHash = tx.hashForSignature(scriptPubKey, i,
+                 anypay ? Transaction.SIGHASH_ANYONECANPAY :
+                 Transaction.SIGHASH_ALL);
+    switch (scriptType) {
+    case Script.TX_PUBKEYHASH:
+      rc = this.cmd_raw_sign_pubkeyhash(anypay, tx, i, scriptPubKey, txSigHash);
+      break;
+    case Script.TX_MULTISIG:
+      rc = this.cmd_raw_sign_multisig(anypay, tx, i, scriptPubKey, txSigHash);
+      break;
+    case Script.TX_PUBKEY:
+      rc = this.cmd_raw_sign_pubkey(anypay, tx, i, scriptPubKey, txSigHash);
+      break;
+    default:
+      return -1;
+    }
+  
+    var scriptSigBuf = tx.ins[i].s;
+    var scriptSig = new Script(scriptSigBuf);
+    var len = scriptSig.chunks.length;
+    var scriptBufNotAlreadyAppended = scriptSig.chunks[len-1] !== undefined && (typeof scriptSig.chunks[len-1] == "number" || scriptSig.chunks[len-1].toString('hex') != scriptBuf.toString('hex'));
+    if (rc > 0 && scriptBufNotAlreadyAppended) {
+      scriptSig.chunks.push(scriptBuf);
+      scriptSig.updateBuffer();
+      tx.ins[i].s = scriptSig.getBuffer();
+    }
+  
+    if (scriptType == Script.TX_MULTISIG && scriptSig.finishedMultiSig())
+    {
+      scriptSig.removePlaceHolders();
+      scriptSig.prependOp0();
+      tx.ins[i].s = scriptSig.getBuffer();
+    }
+    
+    return rc;
+  
+  }
+  
+  Cosign.prototype.cmd_raw_sign_internal2 = function(anypay, tx, inputIdx, scriptObj)
+  {
+    // console.dir(tx);
+    var txin = tx.ins[inputIdx];
+    if (!txin)
+      return -2;  // invalid?
+  
+    var scriptBuf = new Buffer(scriptObj['hex'], 'hex');
+    var scriptPubKey = new Script(scriptBuf);
+    var scriptType = scriptPubKey.classify();
+    if (txin.s.length > 0 && scriptType!=Script.TX_SCRIPTHASH && scriptType!=Script.TX_MULTISIG)
+      return -1;  // already signed, did no work
+    var rc = -1;
+  
+    var txSigHash = tx.hashForSignature(scriptPubKey, inputIdx,
+                 anypay ? Transaction.SIGHASH_ANYONECANPAY :
+                 Transaction.SIGHASH_ALL);
+    switch (scriptType) {
+    case Script.TX_UNKNOWN:
+      break;
+    case Script.TX_PUBKEYHASH:
+      rc = this.cmd_raw_sign_pubkeyhash(anypay, tx, inputIdx, scriptPubKey, txSigHash);
+      break;
+    case Script.TX_SCRIPTHASH:
+      rc = this.cmd_raw_sign_scripthash(anypay, tx, inputIdx, scriptPubKey, txSigHash);
+      break;
+    case Script.TX_MULTISIG:
+      rc = this.cmd_raw_sign_multisig(anypay, tx, inputIdx, scriptPubKey, txSigHash);
+      break;
+    case Script.TX_PUBKEY:
+      rc = this.cmd_raw_sign_pubkey(anypay, tx, inputIdx, scriptPubKey, txSigHash);
+      break;
+    }
+    
+    return 0;    // did no work; signed nothing
+  }
+  
+  Cosign.prototype.cmd_raw_sign_internal = function(anypay)
+  {
+    var self = this;
+    var rawbuf = new Buffer(this.datastore['raw'], 'hex');
+    var parser = new Parser(rawbuf);
+    var tx = new Transaction();
+    tx.parse(parser);
+    var inputs = tx.inputs();
+  
+    var inputIdx = 0;
+    var f=[];
+    do {
+      (function(){
+        var inputIdxCopy = inputIdx;
+        f[inputIdxCopy] = function(callback) {
+          var input = inputs[inputIdxCopy];
+          var hashStr = coinUtil.formatHashFull(input[0]);
+          self.rpc.getTxOut(hashStr, input[1], function(err, resp) {
+            if (err) throw new Error(err['message']);
+  
+            var rpcres = resp['result'];
+            var scriptObj = rpcres['scriptPubKey'];
+  
+            var rc = self.cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
+  
+            callback();
+            // console.log("int2 rc = ", rc);
+          });
+        }
+      })();
+  
+      inputIdx++;
+    } while (inputIdx < inputs.length);
+    
+    async.series(f,function(err){self.raw_sign_wallet_cb(err, tx)});
+  }
+  
+  Cosign.prototype.raw_sign_wallet_cb = function(err, tx)
+  {
+    if (err) throw new Error(err['message']);
+    this.datastore['raw'] = tx.serialize().toString('hex');
+    this.write_datastore(function(err){});
+  }
+  
+  Cosign.prototype.raw_sign_cb = function(err, resp)
+  {
+    if (err) throw new Error(err['message']);
+    var result = resp['result'];
+    var hexstr = result['hex'];
+    var complete = result['complete'];
+  
+    console.log(complete ? "sigs:complete" : "sigs:partial");
+  
+    if (hexstr != this.datastore['raw']) {
+      this.datastore['raw'] = hexstr;
+      console.log("raw:updated");
+      this.write_datastore(function(err) {});
+    } else
+      console.log("raw:unchanged");
+  }
+  
+  Cosign.prototype.cmd_raw_sign = function(start_idx)
+  {
+    var self = this;
+    if (!this.datastore['raw'])
+      throw new Error("Missing raw transaction");
+  
+    var anypay = false;
+  
+    // scan list of command line options
+    for (var i = start_idx; i < this.program.args.length; i++) {
+      switch (this.program.args[i]) {
+      case "anyonecanpay":
+        anypay = true;
+        break;
+  
+      default:
+        throw new Error("Unknown raw.sign option");
+      }
+    }
+  
+    if (this.wallet)
+      this.cmd_raw_sign_internal(anypay)
+    else
+      this.rpc.signRawTransaction(self.datastore['raw'], null, null,
+                 anypay ? 'ALL|ANYONECANPAY' : 'ALL',
+                 raw_sign_cb);
+  }
+  
+  Cosign.prototype.cmd_raw_write = function(filename)
+  {
+    var self = this;
+    if (this.datastore['raw'] == undefined)
+      throw new Error("No raw transaction data stored in memory");
+    
+    fs.writeFile(filename, self.datastore['raw'], function(err) {});
+  }
+  
+  Cosign.prototype.wallet_msig_cb = function(err, resp)
+  {
+    if (err) throw new Error(err['message']);
+    console.log(resp['result']);
+  }
+  
+  Cosign.prototype.cmd_wallet_msig_rpc = function()
+  {
+    var self = this;
+    this.rpc.addMultiSigAddress(self.datastore['n_required'], self.datastore['pubkeys'],
+               self.wallet_msig_cb);
+  }
+  
+  Cosign.prototype.cmd_wallet_msig_file = function()
+  {
+    var pubkeys = this.wallet.expandKeys(this.datastore['pubkeys']);
+    var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
+    var addrStr = this.wallet.addScript(script);
+    this.wallet_store();
+    console.log(addrStr);
+  }
+  
+  Cosign.prototype.cmd_wallet_msig = function()
+  {
+    if (!this.datastore['n_required'] || !this.datastore['pubkeys'])
+      throw new Error("Missing N-Required and/or pubkeys");
+  
+    if (this.wallet)
+      this.cmd_wallet_msig_file();
+    else
+      this.cmd_wallet_msig_rpc();
+  }
+  
+  Cosign.prototype.main = function()
+  {
+    var self = this;
+    if (this.program.args.length == 0) {
+      console.error("No command specified.");
+      this.list_commands();
       return;
     }
+  
+    var cmd = this.program.args[0];
+    
+    if (cmd != 'init' && cmd != 'help' && cmd != 'clean') {
+      try {
+        this.datastore = JSON.parse(fs.readFileSync(self.statedb_fn));
+      } catch(e) {
+        console.error(this.statedb_fn, "must be a valid JSON file.  Run 'init' command to create a new one.");
+        return;
+      }
+    }
+  
+    switch (cmd) {
+  
+    case "clean":
+      this.remove_database(function(err) {});
+      break;
+  
+    case "dump":
+      console.dir(this.datastore);
+      break;
+  
+    default:
+      console.error("Unknown command", cmd);
+      // fall through
+  
+    case "help":
+      this.list_commands();
+      return;
+    
+    case "init":
+      this.write_datastore(function(err) {});
+      break;
+    
+    case "inputs":
+      this.cmd_inputs();
+      break;
+    case "inputs.clear":
+      delete this.datastore['inputs'];
+      this.write_datastore(function(err) {});
+      break;
+  
+    case "multisig":
+      this.cmd_multisig();
+      break;
+    
+    case "nreq":
+      this.cmd_nreq();
+      break;
+  
+    case "outputs":
+      this.cmd_outputs();
+      break;
+    case "outputs.clear":
+      delete this.datastore['outputs'];
+      this.write_datastore(function(err) {});
+      break;
+  
+    case "pubkey.get":
+      if (this.program.args.length < 2)
+        throw new Error("Missing required address param");
+      this.cmd_pubkey_get(this.program.args[1]);
+      break;
+  
+    case "pubkeys":
+      this.cmd_pubkeys();
+      break;
+  
+    case "pubkeys.clear":
+      delete this.datastore['pubkeys'];
+      this.write_datastore(function(err) {});
+      break;
+  
+    case "raw":
+      if (this.program.args.length < 2)
+        throw new Error("Missing required hex-string param");
+      this.cmd_raw(this.program.args[1], false);
+      break;
+    case "raw.append":
+      if (this.program.args.length < 2)
+        throw new Error("Missing required filename param");
+      this.cmd_raw_append(this.program.args[1]);
+      break;
+    case "raw.clear":
+      delete this.datastore['raw'];
+      this.write_datastore(function(err) {});
+      break;
+    case "raw.create":
+      this.cmd_raw_create();
+      break;
+    case "raw.decode":
+      this.cmd_raw_decode();
+      break;
+    case "raw.get":
+      if (this.program.args.length < 2)
+        throw new Error("Missing required txid param");
+      this.cmd_raw_get(this.program.args[1]);
+      break;
+    case "raw.read":
+      if (this.program.args.length < 2)
+        throw new Error("Missing required filename param");
+      this.cmd_raw_read(this.program.args[1]);
+      break;
+    case "raw.send":
+      this.cmd_raw_send();
+      break;
+    case "raw.sign":
+      this.cmd_raw_sign(1);
+      break;
+    case "raw.write":
+      if (this.program.args.length < 2)
+        throw new Error("Missing required filename param");
+      this.cmd_raw_write(this.program.args[1]);
+      break;
+  
+    case "wallet.msig":
+      this.cmd_wallet_msig();
+      break;
+    }
   }
+  return Cosign;
+};
+module.defineClass(spec);
 
-  switch (cmd) {
-
-  case "clean":
-    remove_database(function(err) {});
-    break;
-
-  case "dump":
-    console.dir(datastore);
-    break;
-
-  default:
-    console.error("Unknown command", cmd);
-    // fall through
-
-  case "help":
-    list_commands();
-    return;
-  
-  case "init":
-    write_datastore(function(err) {});
-    break;
-  
-  case "inputs":
-    cmd_inputs();
-    break;
-  case "inputs.clear":
-    delete datastore['inputs'];
-    write_datastore(function(err) {});
-    break;
-
-  case "multisig":
-    cmd_multisig();
-    break;
-  
-  case "nreq":
-    cmd_nreq();
-    break;
-
-  case "outputs":
-    cmd_outputs();
-    break;
-  case "outputs.clear":
-    delete datastore['outputs'];
-    write_datastore(function(err) {});
-    break;
-
-  case "pubkey.get":
-    if (program.args.length < 2)
-      throw new Error("Missing required address param");
-    cmd_pubkey_get(program.args[1]);
-    break;
-
-  case "pubkeys":
-    cmd_pubkeys();
-    break;
-
-  case "pubkeys.clear":
-    delete datastore['pubkeys'];
-    write_datastore(function(err) {});
-    break;
-
-  case "raw":
-    if (program.args.length < 2)
-      throw new Error("Missing required hex-string param");
-    cmd_raw(program.args[1], false);
-    break;
-  case "raw.append":
-    if (program.args.length < 2)
-      throw new Error("Missing required filename param");
-    cmd_raw_append(program.args[1]);
-    break;
-  case "raw.clear":
-    delete datastore['raw'];
-    write_datastore(function(err) {});
-    break;
-  case "raw.create":
-    cmd_raw_create();
-    break;
-  case "raw.decode":
-    cmd_raw_decode();
-    break;
-  case "raw.get":
-    if (program.args.length < 2)
-      throw new Error("Missing required txid param");
-    cmd_raw_get(program.args[1]);
-    break;
-  case "raw.read":
-    if (program.args.length < 2)
-      throw new Error("Missing required filename param");
-    cmd_raw_read(program.args[1]);
-    break;
-  case "raw.send":
-    cmd_raw_send();
-    break;
-  case "raw.sign":
-    cmd_raw_sign(1);
-    break;
-  case "raw.write":
-    if (program.args.length < 2)
-      throw new Error("Missing required filename param");
-    cmd_raw_write(program.args[1]);
-    break;
-
-  case "wallet.msig":
-    cmd_wallet_msig();
-    break;
-  }
+if (require.main === module) {
+  var Cosign = module.exports.class();
+  var cosign = new Cosign(process.argv)
+    cosign.main();
 }
-
-if (require.main === module)
-  main();
-
