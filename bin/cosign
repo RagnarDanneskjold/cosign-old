@@ -105,6 +105,7 @@ function spec(b) {
     s += "raw.sign [anyonecanpay]\tSign transaction, if possible\n";
     s += "raw.write FILE\tOutput serialize transaction to file\n";
     s += "validate.inputs\tValidate that the raw inputs match the inputs\n";
+    s += "validate.inputtxs\n\t\tValidate that the inputtxs match the inputs\n";
     s += "validate.outputs\n\t\tValidate that the raw outputs match the outputs\n";
     s += "validate.pubkeys\n\t\tValidate which pubkeys for which you have the private key\n";
     s += "validate.redeem\tValidate that redeem script matches public keys and nreq\n";
@@ -890,6 +891,45 @@ function spec(b) {
       console.log('Warning: inconsistency between database inputs and transaction inputs.');
   }
 
+  Cosign.prototype.cmd_validate_inputtxs_internal = function()
+  {
+    self = this;
+
+    var inputs = self.datastore.inputs;
+    var inputtxs = self.datastore.inputtxs;
+
+    for (var i in inputs) {
+      var txid = inputs[i].txid;
+      var txhex = inputtxs[txid];
+
+      //check that input is in inputtxs
+      if (txhex === undefined)
+        return false;
+
+      var txbuf = new Buffer(txhex, 'hex');
+      var tx = new Transaction();
+      tx.parse(txbuf);
+      var txhash = coinUtil.formatHashFull(tx.getHash());
+
+      //check that tx hashes to txid correctly
+      if (txid !== txhash)
+        return false;
+    }
+
+    return true;
+  }
+
+  Cosign.prototype.cmd_validate_inputtxs = function()
+  {
+    var self = this;
+    var valid = self.cmd_validate_inputtxs_internal();
+
+    if (valid)
+      console.log('Success: inputtxs correspond to inputs.');
+    else
+      console.log('Warning: inconsistency between inputtxs and inputs.');
+  }
+
   Cosign.prototype.cmd_validate_outputs_internal = function()
   {
     var self = this;
@@ -1133,6 +1173,9 @@ function spec(b) {
 
     case "validate.inputs":
       this.cmd_validate_inputs();
+      break;
+    case "validate.inputtxs":
+      this.cmd_validate_inputtxs();
       break;
     case "validate.outputs":
       this.cmd_validate_outputs();
