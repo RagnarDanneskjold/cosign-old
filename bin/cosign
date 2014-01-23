@@ -12,6 +12,9 @@ function spec(b) {
   var Address = b.Address || require('bitcore/Address').class();
   var Wallet = b.Wallet || require('bitcore/Wallet').class();
   var WalletKey = b.WalletKey || require('bitcore/WalletKey').class();
+  var KeyModule = b.KeyModule || require('bitcore/Key');
+  var networks = b.networks || require('bitcore/networks');
+  var PrivateKey = b.PrivateKey || require('bitcore/PrivateKey').class();
   var Script = b.Script || require('bitcore/Script').class();
   var coinUtil = b.coinUtil || require('bitcore/util/util');
   var Parser = b.Parser || require('bitcore/util/BinaryParser').class();
@@ -41,6 +44,7 @@ function spec(b) {
         'pass' : self.program.rpcpass,
         'protocol' : 'http'
     });
+    console.log('pass: ' + this.program.pass);
   
     this.statedb_fn = this.program.file;
     
@@ -80,13 +84,19 @@ function spec(b) {
     s += "init\t\tInitialize new transaction state database\n";
     s += "inputs TXID1 VOUT1 TXID2 VOUT2...\n\t\tAppend inputs to TX\n";
     s += "inputs.clear\tClear list of inputs\n";
+    s += "inputtxs.clear\tClear list of input transactions\n";
+    s += "inputtxs.get\tRetrieve the full transactions for each input\n";
     s += "multisig N-REQUIRED KEY1 KEY2 KEY3...\n\t\tBegin new multi-sig tx\n";
     s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
+    s += "redeem.clear\tClear redeem script\n";
+    s += "redeem.create\tCreate redeem script\n";
+    s += "redeem.validate\tValidate that redeem script matches public keys and nreq\n"
     s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
     s += "outputs.clear\tClear list of TX outputs\n";
     s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
     s += "pubkeys KEY1 KEY2 KEY3...\n\t\tAdd to list of pubkeys / bitcoin addresses\n";
     s += "pubkeys.clear\tClear list of pubkeys\n";
+    s += "pubkeys.validate Validate which pubkeys for which you have the private key\n";
     s += "raw SERIALIZED-TX\n\t\tInput serialized transaction from command line\n";
     s += "raw.append FILE\tAppend FILE to serialized transaction data\n";
     s += "raw.clear\tClear serialized tx data\n";
@@ -171,6 +181,38 @@ function spec(b) {
     parse_nreq(1);
     write_datastore(function(err) {});
   }
+
+  Cosign.prototype.cmd_redeem_create = function()
+  {
+    var pubkeys = [];
+    for (var i in this.datastore['pubkeys'])
+      pubkeys[i] = new Buffer(this.datastore['pubkeys'][i], 'hex');
+    var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
+    this.datastore.redeemScript = script.buffer.toString('hex');
+    this.write_datastore(function() {});
+  }
+
+  Cosign.prototype.cmd_redeem_validate_internal = function()
+  {
+    var pubkeys = [];
+    for (var i in this.datastore['pubkeys'])
+      pubkeys[i] = new Buffer(this.datastore['pubkeys'][i], 'hex');
+    var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
+    var hex = script.buffer.toString('hex');
+    if (hex == this.datastore.redeemScript)
+      return true;
+    else
+      return false;
+  }
+
+  Cosign.prototype.cmd_redeem_validate = function()
+  {
+    var match = this.cmd_redeem_validate_internal();
+    if (match)
+      console.log('Success.');
+    else
+      console.log('Failure. Rebuild redeem script.');
+  }
   
   Cosign.prototype.ds_push_pubkey = function(pubkeyStr)
   {
@@ -217,6 +259,51 @@ function spec(b) {
     this.parse_pubkeys(1);
     this.write_datastore(function(err) {});
   }
+
+  Cosign.prototype.cmd_pubkeys_validate_file = function()
+  {
+    for (var i in this.datastore.pubkeys) {
+      var pubkey = this.datastore.pubkeys[i];
+
+      var haskey = false;
+
+      for (var j in this.wallet.datastore.keys) {
+
+        //pubkey should be what's recorded in wallet
+        var key = this.wallet.datastore.keys[j];
+        var pubkey2 = key.pub.toString('hex');
+
+        //pubkey should be what can be rederived from private key
+        var pkey = new PrivateKey(key.priv);
+        var eckey = new KeyModule.Key.generateSync();
+        var buf = new Buffer(pkey.as('hex'), 'hex');
+        eckey.private = new Buffer(pkey.payload());
+        eckey.compressed = pkey.compressed();
+        eckey.regenerateSync();
+        var pubkey3 = eckey.public.toString('hex');
+
+        if (pubkey2 == pubkey && pubkey3 == pubkey) {
+          haskey = true;
+          break;
+        }
+      }
+      console.log(pubkey, haskey ? "yes" : "no");
+    }
+  }
+
+  Cosign.prototype.cmd_pubkeys_validate_rpc = function()
+  {
+    console.log('Not implemented yet.');
+  }
+
+  Cosign.prototype.cmd_pubkeys_validate = function()
+  {
+    var self = this;
+    if (this.wallet)
+      this.cmd_pubkeys_validate_file();
+    else
+      this.cmd_pubkeys_validate_rpc();
+  }
   
   Cosign.prototype.cmd_inputs = function()
   {
@@ -235,6 +322,39 @@ function spec(b) {
     }
   
     this.write_datastore(function(err) {});
+  }
+
+  Cosign.prototype.cmd_inputtxs_get = function()
+  {
+    var self = this;
+    var inputs = self.datastore.inputs;
+    var inputIdx = 0;
+    var f = [];
+    do {
+      (function() {
+        var inputIdxCopy = inputIdx;
+        f[inputIdxCopy] = function(callback) {
+          var input = inputs[inputIdxCopy];
+          var hashStr = input.txid;
+          self.rpc.getRawTransaction(hashStr, function(err, resp) {
+            if (err) throw new Error(err['message']);
+
+            var txhash = resp['result'];
+
+            if (!self.datastore.inputtxs)
+              self.datastore.inputtxs = {};
+
+            self.datastore.inputtxs[hashStr]=txhash;
+
+            callback();
+          });
+        }
+      })();
+
+      inputIdx++;
+    } while (inputIdx < inputs.length);
+
+    async.series(f,function(err){self.write_datastore(function() {})});
   }
   
   Cosign.prototype.cmd_outputs = function()
@@ -608,6 +728,28 @@ function spec(b) {
     do {
       (function(){
         var inputIdxCopy = inputIdx;
+
+        //inputtxs are in datastore
+        if (self.datastore.inputtxs) {
+          f[inputIdxCopy] = function(callback) {
+            var intxid = self.datastore.inputs[inputIdxCopy].txid;
+            var intxhex = self.datastore.inputtxs[intxid];
+            var intxbuf = new Buffer(intxhex, 'hex');
+            var intx = new Transaction();
+            intx.parse(intxbuf);
+            var outn = self.datastore.inputs[inputIdxCopy].vout;
+            var out = intx.outs[outn];
+            var outscript = out.getScript();
+            var outscripthex = outscript.buffer.toString('hex');
+            var scriptObj = {};
+            scriptObj.hex = outscripthex;
+            var rc = self.cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
+            callback();
+          }
+          return;
+        }
+
+        //inputtxs are not in datastore - must talk to bitcoind
         f[inputIdxCopy] = function(callback) {
           var input = inputs[inputIdxCopy];
           var hashStr = coinUtil.formatHashFull(input[0]);
@@ -620,7 +762,6 @@ function spec(b) {
             var rc = self.cmd_raw_sign_internal2(anypay, tx, inputIdxCopy, scriptObj);
   
             callback();
-            // console.log("int2 rc = ", rc);
           });
         }
       })();
@@ -716,8 +857,12 @@ function spec(b) {
   
   Cosign.prototype.cmd_wallet_msig = function()
   {
-    if (!this.datastore['n_required'] || !this.datastore['pubkeys'])
-      throw new Error("Missing N-Required and/or pubkeys");
+    if (!this.datastore['n_required'] || !this.datastore['pubkeys'] || !this.datastore['redeemScript'])
+      throw new Error("Missing N-Required and/or pubkeys and/or redeemScript");
+
+    var check = this.cmd_redeem_validate_internal();
+    if (!check)
+      throw new Error("Pubkeys and n-req do not match redeemScript");
   
     if (this.wallet)
       this.cmd_wallet_msig_file();
@@ -774,6 +919,14 @@ function spec(b) {
       delete this.datastore['inputs'];
       this.write_datastore(function(err) {});
       break;
+
+    case "inputtxs.clear":
+      delete this.datastore['inputtxs'];
+      this.write_datastore(function(err) {});
+      break;
+    case "inputtxs.get":
+      this.cmd_inputtxs_get();
+      break;
   
     case "multisig":
       this.cmd_multisig();
@@ -781,6 +934,17 @@ function spec(b) {
     
     case "nreq":
       this.cmd_nreq();
+      break;
+
+    case "redeem.clear":
+      delete this.datastore['redeemScript'];
+      this.write_datastore(function(err) {});
+      break;
+    case "redeem.create":
+      this.cmd_redeem_create();
+      break;
+    case "redeem.validate":
+      this.cmd_redeem_validate();
       break;
   
     case "outputs":
@@ -796,11 +960,12 @@ function spec(b) {
         throw new Error("Missing required address param");
       this.cmd_pubkey_get(this.program.args[1]);
       break;
-  
     case "pubkeys":
       this.cmd_pubkeys();
       break;
-  
+    case "pubkeys.validate":
+      this.cmd_pubkeys_validate();
+      break;
     case "pubkeys.clear":
       delete this.datastore['pubkeys'];
       this.write_datastore(function(err) {});
