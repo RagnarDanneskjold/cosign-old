@@ -104,9 +104,10 @@ function spec(b) {
     s += "raw.send\tSend raw tx to network via RPC\n";
     s += "raw.sign [anyonecanpay]\tSign transaction, if possible\n";
     s += "raw.write FILE\tOutput serialize transaction to file\n";
-    s += "validate.inputs\tValidate that the inputs in the transaction are correct\n"
-    s += "validate.pubkeys Validate which pubkeys for which you have the private key\n";
-    s += "validate.redeem\tValidate that redeem script matches public keys and nreq\n"
+    s += "validate.inputs\tValidate that the raw inputs match the inputs\n";
+    s += "validate.outputs\n\t\tValidate that the raw outputs match the outputs\n";
+    s += "validate.pubkeys\n\t\tValidate which pubkeys for which you have the private key\n";
+    s += "validate.redeem\tValidate that redeem script matches public keys and nreq\n";
     s += "wallet.msig\tCommit in-memory multisig data to wallet,\n\t\treturning a multisig payment address.\n";
     console.log(s);
   }
@@ -888,6 +889,73 @@ function spec(b) {
     else
       console.log('Warning: inconsistency between database inputs and transaction inputs.');
   }
+
+  Cosign.prototype.cmd_validate_outputs_internal = function()
+  {
+    var self = this;
+    var dboutputs = self.datastore.outputs;
+    if (!dboutputs) return false;
+
+    var raw = self.datastore.raw;
+    if (!raw) return false;
+
+    var tx = new Transaction();
+    tx.parse(new Buffer(raw, 'hex'));
+
+    var txoutputs = tx.outs;
+
+    var dboutlen = 0;
+    for (var dbouti in dboutputs)
+      dboutlen++;
+    if (txoutputs.length != dboutlen)
+      return false;
+
+    var txHasOutput = [];
+
+    for (var i in dboutputs) {
+      txHasOutput[i] = false;
+
+      var dboutput_addrstr = i;
+      var dboutput_addr = new Address(dboutput_addrstr);
+      var dboutput_hash = dboutput_addr.payload();
+      var dboutput_hashstr = dboutput_hash.toString('hex');
+      var dboutput_val = coinUtil.parseValue(dboutputs[i]).toNumber();
+
+      for (var j in txoutputs) {
+        var txoutput = txoutputs[j];
+        var script = txoutput.getScript();
+        var txoutput_val = txoutput.getValue();
+
+        if (script.isPubkeyHash())
+          var txoutput_hash = script.chunks[2];
+        else if (script.isP2SH())
+          var txoutput_hash = script.chunks[1];
+        else //other output tx types unsupported
+          return false;
+
+        var txoutput_hashstr = txoutput_hash.toString('hex');
+
+        if (dboutput_hashstr == txoutput_hashstr && dboutput_val == txoutput_val)
+          txHasOutput[i] = true;
+      }
+
+      if (!txHasOutput[i])
+        return false;
+    }
+
+    return true;
+  }
+
+  Cosign.prototype.cmd_validate_outputs = function()
+  {
+    var self = this;
+    var valid = self.cmd_validate_outputs_internal();
+
+    if (valid)
+      console.log('Success: database outputs and transaction outputs are one-to-one.');
+    else
+      console.log('Warning: inconsistency between database outputs and transaction outputs.');
+  }
   
   Cosign.prototype.wallet_msig_cb = function(err, resp)
   {
@@ -1065,6 +1133,9 @@ function spec(b) {
 
     case "validate.inputs":
       this.cmd_validate_inputs();
+      break;
+    case "validate.outputs":
+      this.cmd_validate_outputs();
       break;
     case "validate.pubkeys":
       this.cmd_validate_pubkeys();
