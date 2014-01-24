@@ -238,7 +238,7 @@ function spec(b) {
       inval = inval + tx.outs[input_n].getValue();
     }
 
-    var fees = inval - outval;
+    var fees = Math.round(inval - outval);
     fees = fees * 1e-8;
     return fees;
   }
