@@ -104,6 +104,7 @@ function spec(b) {
     s += "raw.send\tSend raw tx to network via RPC\n";
     s += "raw.sign [anyonecanpay]\tSign transaction, if possible\n";
     s += "raw.write FILE\tOutput serialize transaction to file\n";
+    s += "validate.fees\tCalculate miner fees\n";
     s += "validate.inputs\tValidate that the raw inputs match the inputs\n";
     s += "validate.inputtxs\n\t\tValidate that the inputtxs match the inputs\n";
     s += "validate.outputs\n\t\tValidate that the raw outputs match the outputs\n";
@@ -214,6 +215,39 @@ function spec(b) {
       console.log('Success.');
     else
       console.log('Failure. Rebuild redeem script.');
+  }
+
+  Cosign.prototype.cmd_validate_fees_internal = function()
+  {
+    var self = this;
+    var outval = 0;
+    var outputs = self.datastore.outputs;
+    for (var i in outputs)
+      outval += (new Number(outputs[i])) * 1e8;
+
+    var inval = 0;
+    var inputs = self.datastore.inputs;
+    for (var i in inputs) {
+      var input = inputs[i];
+      var input_txid = input.txid;
+      var input_n = input.vout;
+      var txhex = self.datastore.inputtxs[input_txid];
+      var txbuf = new Buffer(txhex, 'hex');
+      var tx = new Transaction();
+      tx.parse(txbuf);
+      inval = inval + tx.outs[input_n].getValue();
+    }
+
+    var fees = inval - outval;
+    fees = fees * 1e-8;
+    return fees;
+  }
+
+  Cosign.prototype.cmd_validate_fees = function()
+  {
+    var self = this;
+    var fees = self.cmd_validate_fees_internal();
+    console.log('Fees: ' + fees + ' BTC');
   }
   
   Cosign.prototype.ds_push_pubkey = function(pubkeyStr)
@@ -1171,6 +1205,9 @@ function spec(b) {
       this.cmd_raw_write(this.program.args[1]);
       break;
 
+    case "validate.fees":
+      this.cmd_validate_fees();
+      break;
     case "validate.inputs":
       this.cmd_validate_inputs();
       break;
