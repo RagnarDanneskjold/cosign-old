@@ -488,7 +488,14 @@ function spec(b) {
     var keys = Object.keys(this.datastore.outputs);
     keys.forEach(function(addrStr) {
       var addr = new Address(addrStr);
-      var script = Script.createPubKeyHashOut(addr.payload());
+      var version = addr.version()
+
+      if (version == networks.livenet.addressPubkey || version == networks.testnet.addressPubkey)
+        var script = Script.createPubKeyHashOut(addr.payload());
+      else if (version == networks.livenet.addressScript || version == networks.testnet.addressScript)
+        var script = Script.createP2SH(addr.payload());
+      else
+        throw new Error('invalid output address');
   
       var valueNum = coinUtil.parseValue(self.datastore.outputs[addrStr]);
       var value = coinUtil.bigIntToValue(valueNum);
