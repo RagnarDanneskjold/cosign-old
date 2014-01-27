@@ -198,10 +198,13 @@ function spec(b) {
   Cosign.prototype.cmd_validate_redeem_internal = function()
   {
     var pubkeys = [];
+
     for (var i in this.datastore['pubkeys'])
       pubkeys[i] = new Buffer(this.datastore['pubkeys'][i], 'hex');
+
     var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
     var hex = script.buffer.toString('hex');
+
     if (hex == this.datastore.redeemScript)
       return true;
     else
@@ -212,9 +215,25 @@ function spec(b) {
   {
     var match = this.cmd_validate_redeem_internal();
     if (match)
-      console.log('Success.');
+      console.log('Success: redeem script corresponds to nreq and pubkeys.');
     else
-      console.log('Failure. Rebuild redeem script.');
+      console.log('Failure: redeem script does not correspond to nreq and pubkeys.');
+  }
+
+  Cosign.prototype.cmd_validate_all = function()
+  {
+    console.log('validate.fees:');
+    this.cmd_validate_fees();
+    console.log('\nvalidate.inputs:');
+    this.cmd_validate_inputs();
+    console.log('\nvalidate.inputtxs:');
+    this.cmd_validate_inputtxs();
+    console.log('\nvalidate.outputs:');
+    this.cmd_validate_outputs();
+    console.log('\nvalidate.pubkeys:');
+    this.cmd_validate_pubkeys();
+    console.log('\nvalidate.redeem:');
+    this.cmd_validate_redeem();
   }
 
   Cosign.prototype.cmd_validate_fees_internal = function()
@@ -248,6 +267,12 @@ function spec(b) {
     var self = this;
     var fees = self.cmd_validate_fees_internal();
     console.log('Fees: ' + fees + ' BTC');
+    if (fees <= 0.0002 && fees > 0)
+      console.log('Success: Fees are reasonable.');
+    else if (fees > 0)
+      console.log('Failure: fees are too high.');
+    else
+      console.log('Failure: fees are negative.');
   }
   
   Cosign.prototype.ds_push_pubkey = function(pubkeyStr)
@@ -298,6 +323,7 @@ function spec(b) {
 
   Cosign.prototype.cmd_validate_pubkeys_file = function()
   {
+    var nkeys = 0;
     for (var i in this.datastore.pubkeys) {
       var pubkey = this.datastore.pubkeys[i];
 
@@ -320,25 +346,34 @@ function spec(b) {
 
         if (pubkey2 == pubkey && pubkey3 == pubkey) {
           haskey = true;
+          nkeys++;
           break;
         }
       }
-      console.log(pubkey, haskey ? "yes" : "no");
+      console.log(pubkey, haskey ? "found" : "not");
     }
+    return nkeys;
   }
 
   Cosign.prototype.cmd_validate_pubkeys_rpc = function()
   {
-    console.log('Not implemented yet.');
+    console.log('Failure: validate.pubkeys for bitcoind wallet not implemented yet.');
   }
 
   Cosign.prototype.cmd_validate_pubkeys = function()
   {
     var self = this;
-    if (this.wallet)
-      this.cmd_validate_pubkeys_file();
+    var nkeys = 0;
+
+    if (self.wallet)
+      nkeys = self.cmd_validate_pubkeys_file();
     else
-      this.cmd_validate_pubkeys_rpc();
+      nkeys = self.cmd_validate_pubkeys_rpc();
+
+    if (nkeys > 0)
+      console.log('Success: one or more public keys with corresponding private key found.');
+    else
+      console.log('Failure: no public keys with corresponding private key found.');
   }
   
   Cosign.prototype.cmd_inputs = function()
@@ -922,7 +957,7 @@ function spec(b) {
     if (valid)
       console.log('Success: database inputs and transaction inputs are one-to-one.');
     else
-      console.log('Warning: inconsistency between database inputs and transaction inputs.');
+      console.log('Failure: inconsistency between database inputs and transaction inputs.');
   }
 
   Cosign.prototype.cmd_validate_inputtxs_internal = function()
@@ -961,7 +996,7 @@ function spec(b) {
     if (valid)
       console.log('Success: inputtxs correspond to inputs.');
     else
-      console.log('Warning: inconsistency between inputtxs and inputs.');
+      console.log('Failure: inconsistency between inputtxs and inputs.');
   }
 
   Cosign.prototype.cmd_validate_outputs_internal = function()
@@ -1028,7 +1063,7 @@ function spec(b) {
     if (valid)
       console.log('Success: database outputs and transaction outputs are one-to-one.');
     else
-      console.log('Warning: inconsistency between database outputs and transaction outputs.');
+      console.log('Failure: inconsistency between database outputs and transaction outputs.');
   }
   
   Cosign.prototype.wallet_msig_cb = function(err, resp)
@@ -1205,6 +1240,9 @@ function spec(b) {
       this.cmd_raw_write(this.program.args[1]);
       break;
 
+    case "validate.all":
+      this.cmd_validate_all();
+      break;
     case "validate.fees":
       this.cmd_validate_fees();
       break;
