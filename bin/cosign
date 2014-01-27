@@ -112,6 +112,7 @@ function spec(b) {
     s += "validate.p2sh\tValidate the p2sh address corresponds to the redeem script.\n"
     s += "validate.pubkeys\n\t\tValidate which pubkeys for which you have the private key\n";
     s += "validate.redeem\tValidate that redeem script matches public keys and nreq\n";
+    s += "validate.sigs\tCount and validate signatures in the raw transaction\n";
     s += "wallet.msig\tCommit in-memory multisig data to wallet,\n\t\treturning a multisig payment address.\n";
     console.log(s);
   }
@@ -222,6 +223,53 @@ function spec(b) {
       console.log('Failure: redeem script does not correspond to nreq and pubkeys.');
   }
 
+  Cosign.prototype.cmd_validate_sigs_internal = function()
+  {
+    var self = this;
+    var txbuf = new Buffer(self.datastore.raw, 'hex');
+    var tx = new Transaction();
+    tx.parse(txbuf);
+    var ins = tx.ins;
+
+    if (ins.length > 1)
+      return -1; //TODO: support multiple inputs
+
+    var txin = ins[0];
+    var s = txin.s;
+    var script = new Script(s);
+
+    //assume inputs are p2sh multisig created by cosign
+    if (s.length == 0)
+      return 0;
+    
+    var sigsbuf = [];
+    var nsigs = 0;
+    for (var i = 0; i < script.chunks.length - 1; i++) {
+      sigsbuf[i] = script.chunks[i];
+
+      if (sigsbuf[i] != 0) {
+        nsigs++;
+        //TODO: actually verify signature
+      }
+    }
+
+    return nsigs;
+  }
+
+  Cosign.prototype.cmd_validate_sigs = function()
+  {
+    var self = this;
+    var nreq = self.datastore.n_required;
+    var nsigs = self.cmd_validate_sigs_internal();
+
+    if (nsigs >= 0 && nsigs == nreq)
+      console.log('Success: all ' + nreq + ' signatures found and valid. Transaction ready to broadcast.');
+    else if (nsigs >= 0 && nsigs < nreq)
+      console.log('Success: ' + nsigs + ' signatures found. ' + (nreq-nsigs) + ' more required.');
+    else
+      console.log('Failure: Signatures invalid.');
+  }
+
   Cosign.prototype.cmd_validate_all = function()
   {
     console.log('validate.fees:');
@@ -238,6 +286,8 @@ function spec(b) {
     this.cmd_validate_pubkeys();
     console.log('\nvalidate.redeem:');
     this.cmd_validate_redeem();
+    console.log('\nvalidate.sigs:');
+    this.cmd_validate_sigs();
   }
 
   Cosign.prototype.cmd_validate_fees_internal = function()
@@ -1320,6 +1370,9 @@ function spec(b) {
       break;
     case "validate.redeem":
       this.cmd_validate_redeem();
+      break;
+    case "validate.sigs":
+      this.cmd_validate_sigs();
       break;
   
     case "wallet.msig":
