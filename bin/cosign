@@ -104,6 +104,7 @@ function spec(b) {
     s += "raw.send\tSend raw tx to network via RPC\n";
     s += "raw.sign [anyonecanpay]\tSign transaction, if possible\n";
     s += "raw.write FILE\tOutput serialize transaction to file\n";
+    s += "validate.all\tRun all validations for p2sh multisig transactions\n";
     s += "validate.fees\tCalculate miner fees\n";
     s += "validate.inputs\tValidate that the raw inputs match the inputs\n";
     s += "validate.inputtxs\n\t\tValidate that the inputtxs match the inputs\n";
