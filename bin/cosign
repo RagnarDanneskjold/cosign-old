@@ -271,6 +271,8 @@ function spec(b) {
       console.log('Success: Fees are reasonable.');
     else if (fees > 0)
       console.log('Failure: fees are too high.');
+    else if (fees == 0)
+      console.log('Failure: fees are zero.');
     else
       console.log('Failure: fees are negative.');
   }
