@@ -109,6 +109,7 @@ function spec(b) {
     s += "validate.inputs\tValidate that the raw inputs match the inputs\n";
     s += "validate.inputtxs\n\t\tValidate that the inputtxs match the inputs\n";
     s += "validate.outputs\n\t\tValidate that the raw outputs match the outputs\n";
+    s += "validate.p2sh\tValidate the p2sh address corresponds to the redeem script.\n"
     s += "validate.pubkeys\n\t\tValidate which pubkeys for which you have the private key\n";
     s += "validate.redeem\tValidate that redeem script matches public keys and nreq\n";
     s += "wallet.msig\tCommit in-memory multisig data to wallet,\n\t\treturning a multisig payment address.\n";
@@ -231,6 +232,8 @@ function spec(b) {
     this.cmd_validate_inputtxs();
     console.log('\nvalidate.outputs:');
     this.cmd_validate_outputs();
+    console.log('\nvalidate.p2sh:');
+    this.cmd_validate_p2sh();
     console.log('\nvalidate.pubkeys:');
     this.cmd_validate_pubkeys();
     console.log('\nvalidate.redeem:');
@@ -1075,6 +1078,50 @@ function spec(b) {
     else
       console.log('Failure: inconsistency between database outputs and transaction outputs.');
   }
+
+  Cosign.prototype.cmd_validate_p2sh_file = function()
+  {
+    var self = this;
+
+    var networkstr = self.wallet.datastore.network;
+    var network = networks[networkstr];
+    var version = network.addressScript;
+    var buf = new Buffer(self.datastore.redeemScript, 'hex');
+    var hash = coinUtil.sha256ripe160(buf);
+    var addr = new Address(version, hash);
+    var addrStr = addr.as('base58');
+
+    var wscript = self.wallet.datastore.scripts[addrStr];
+    var redeem = self.datastore.redeemScript;
+
+    if (redeem == wscript && redeem.length > 0) {
+      console.log(addrStr);
+      return true;
+    }
+    else
+      return false;
+  }
+  
+  Cosign.prototype.cmd_validate_p2sh_rpc = function()
+  {
+    console.log('Failure: validate.p2sh for bitcoind wallet not implemented yet.');
+  }
+
+  Cosign.prototype.cmd_validate_p2sh = function()
+  {
+    var self = this;
+    var valid;
+
+    if (this.wallet)
+      valid = this.cmd_validate_p2sh_file();
+    else
+      valid = this.cmd_validate_p2sh_rpc();
+
+    if (valid)
+      console.log('Success: p2sh address is valid and matches redeem script.');
+    else
+      console.log('Failure: p2sh address is incorrect.');
+  }
   
   Cosign.prototype.wallet_msig_cb = function(err, resp)
   {
@@ -1264,6 +1311,9 @@ function spec(b) {
       break;
     case "validate.outputs":
       this.cmd_validate_outputs();
+      break;
+    case "validate.p2sh":
+      this.cmd_validate_p2sh();
       break;
     case "validate.pubkeys":
       this.cmd_validate_pubkeys();
