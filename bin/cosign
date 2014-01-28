@@ -322,7 +322,7 @@ function spec(b) {
     var fees = self.cmd_validate_fees_internal();
     console.log('Fees: ' + fees + ' BTC');
     if (fees <= 0.0002 && fees > 0)
-      console.log('Success: Fees are reasonable.');
+      console.log('Success: fees are reasonable.');
     else if (fees > 0)
       console.log('Failure: fees are too high.');
     else if (fees == 0)
