@@ -359,7 +359,7 @@ function spec(b) {
       throw new Error("Unable to obtain pubkey from wallet");
   
     this.ds_push_pubkey(obj.pub);
-    write_datastore(function(err) {});
+    this.write_datastore(function(err) {});
   }
   
   Cosign.prototype.cmd_pubkey_get = function(address)

@@ -32,6 +32,32 @@ describe('Cosign', function(){
       });
     });
 
+    describe('raw.create', function() {
+      it('should call cmd_raw_create', function() {
+        var fs = {};
+        fs.readFileSync = function(){return "{}";};
+        var Cosign2 = require('../bin/Cosign').createClass({fs: fs});
+        var cosign = new Cosign2(["","","raw.create"]);
+        cosign.cmd_raw_create = sinon.spy();
+        cosign.main();
+        cosign.program.args[0].should.equal("raw.create");
+        cosign.cmd_raw_create.calledOnce.should.equal(true);
+      });
+    });
+
+    describe('raw.sign', function() {
+      it('should call cmd_raw_sign', function() {
+        var fs = {};
+        fs.readFileSync = function(){return "{}";};
+        var Cosign2 = require('../bin/Cosign').createClass({fs: fs});
+        var cosign = new Cosign2(["","","raw.sign"]);
+        cosign.cmd_raw_sign = sinon.spy();
+        cosign.main();
+        cosign.program.args[0].should.equal("raw.sign");
+        cosign.cmd_raw_sign.calledOnce.should.equal(true);
+      });
+    });
+
     describe('init', function() {
       it('should init the database file', function() {
         var fs = {};
