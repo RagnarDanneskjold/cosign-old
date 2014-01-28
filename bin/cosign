@@ -263,7 +263,7 @@ function spec(b) {
     var nsigs = self.cmd_validate_sigs_internal();
 
     if (nsigs >= 0 && nsigs == nreq)
-      console.log('Success: all ' + nreq + ' signatures found and valid. Transaction ready to broadcast.');
+      console.log('Success: all ' + nreq + ' signatures found.');
     else if (nsigs >= 0 && nsigs < nreq)
       console.log('Success: ' + nsigs + ' signatures found. ' + (nreq-nsigs) + ' more required.');
     else
