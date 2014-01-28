@@ -1145,8 +1145,7 @@ function spec(b) {
     var redeem = self.datastore.redeemScript;
 
     if (redeem == wscript && redeem.length > 0) {
-      console.log(addrStr);
-      return true;
+      return addrStr;
     }
     else
       return false;
@@ -1160,15 +1159,17 @@ function spec(b) {
   Cosign.prototype.cmd_validate_p2sh = function()
   {
     var self = this;
-    var valid;
+    var addrStr;
 
     if (this.wallet)
-      valid = this.cmd_validate_p2sh_file();
+      addrStr = this.cmd_validate_p2sh_file();
     else
-      valid = this.cmd_validate_p2sh_rpc();
+      addrStr = this.cmd_validate_p2sh_rpc();
 
-    if (valid)
+    if (addrStr) {
+      console.log(addrStr);
       console.log('Success: p2sh address is valid and matches redeem script.');
+    }
     else
       console.log('Failure: p2sh address is incorrect.');
   }
