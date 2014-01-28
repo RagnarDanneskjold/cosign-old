@@ -1141,8 +1141,12 @@ function spec(b) {
     var self = this;
     var valid = self.cmd_validate_outputs_internal();
 
-    if (valid)
+    if (valid) {
+      for (var i in self.datastore.outputs) {
+        console.log(i, self.datastore.outputs[i]);
+      }
       console.log('Success: database outputs and transaction outputs are one-to-one.');
+    }
     else
       console.log('Failure: inconsistency between database outputs and transaction outputs.');
   }
