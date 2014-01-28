@@ -174,18 +174,18 @@ function spec(b) {
   
   Cosign.prototype.cmd_multisig = function()
   {
-    parse_nreq(1);
+    this.parse_nreq(1);
   
     this.datastore['pubkeys'] = [];  // clear, if not already
-    parse_pubkeys(2);
+    this.parse_pubkeys(2);
   
-    write_datastore(function(err) {});
+    this.write_datastore(function(err) {});
   }
   
   Cosign.prototype.cmd_nreq = function()
   {
-    parse_nreq(1);
-    write_datastore(function(err) {});
+    this.parse_nreq(1);
+    this.write_datastore(function(err) {});
   }
 
   Cosign.prototype.cmd_redeem_create = function()
