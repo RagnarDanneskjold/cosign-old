@@ -1029,8 +1029,14 @@ function spec(b) {
     var self = this;
     var valid = self.cmd_validate_inputs_internal();
 
-    if (valid)
+    if (valid) {
+      var inputs = self.datastore.inputs;
+      for (var i in inputs) {
+        var input = inputs[i];
+        console.log(input.txid, input.vout);
+      }
       console.log('Success: database inputs and transaction inputs are one-to-one.');
+    }
     else
       console.log('Failure: inconsistency between database inputs and transaction inputs.');
   }
