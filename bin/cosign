@@ -380,6 +380,7 @@ function spec(b) {
   Cosign.prototype.cmd_validate_pubkeys_file = function()
   {
     var nkeys = 0;
+    var keys = {};
     for (var i in this.datastore.pubkeys) {
       var pubkey = this.datastore.pubkeys[i];
 
@@ -406,9 +407,14 @@ function spec(b) {
           break;
         }
       }
-      console.log(pubkey, haskey ? "found" : "not");
+
+      keys[pubkey] = haskey;
     }
-    return nkeys;
+
+    if (nkeys == 0)
+      return false;
+    else
+      return keys;
   }
 
   Cosign.prototype.cmd_validate_pubkeys_rpc = function()
@@ -419,15 +425,21 @@ function spec(b) {
   Cosign.prototype.cmd_validate_pubkeys = function()
   {
     var self = this;
-    var nkeys = 0;
+    var keys = [];
 
     if (self.wallet)
-      nkeys = self.cmd_validate_pubkeys_file();
+      keys = self.cmd_validate_pubkeys_file();
     else
-      nkeys = self.cmd_validate_pubkeys_rpc();
+      keys = self.cmd_validate_pubkeys_rpc();
 
-    if (nkeys > 0)
+    if (keys) {
+      for (var i in self.datastore.pubkeys) {
+        var pubkey = self.datastore.pubkeys[i];
+        var haskey = keys[pubkey];
+        console.log(pubkey, haskey ? "found" : "no");
+      }
       console.log('Success: one or more public keys with corresponding private key found.');
+    }
     else
       console.log('Failure: no public keys with corresponding private key found.');
   }
