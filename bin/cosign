@@ -296,9 +296,9 @@ function spec(b) {
     var outval = 0;
     var outputs = self.datastore.outputs;
     for (var i in outputs)
-      outval += (new Number(outputs[i])) * 1e8;
+      outval += coinUtil.parseValue(outputs[i]);
 
-    var inval = 0;
+    var inval = new bignum(0);
     var inputs = self.datastore.inputs;
     for (var i in inputs) {
       var input = inputs[i];
@@ -308,12 +308,12 @@ function spec(b) {
       var txbuf = new Buffer(txhex, 'hex');
       var tx = new Transaction();
       tx.parse(txbuf);
-      inval = inval + tx.outs[input_n].getValue();
+      inval = inval.add(new bignum(tx.outs[input_n].getValue()));
     }
 
-    var fees = Math.round(inval - outval);
-    fees = fees * 1e-8;
-    return fees;
+    var fees = inval.sub(outval);
+    var fees_btc = fees.toNumber() * 1e-8;
+    return fees_btc;
   }
 
   Cosign.prototype.cmd_validate_fees = function()
