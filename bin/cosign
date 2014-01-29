@@ -44,7 +44,6 @@ function spec(b) {
         'pass' : self.program.rpcpass,
         'protocol' : 'http'
     });
-    console.log('pass: ' + this.program.pass);
   
     this.statedb_fn = this.program.file;
     
@@ -90,13 +89,11 @@ function spec(b) {
     s += "nreq N-REQUIRED\tSpecific number of sigs required for a multisig tx\n";
     s += "redeem.clear\tClear redeem script\n";
     s += "redeem.create\tCreate redeem script\n";
-    s += "redeem.validate\tValidate that redeem script matches public keys and nreq\n"
     s += "outputs ADDRESS1 VALUE1 ADDRESS2 VALUE2...\n\t\tAppend outs to TX\n";
     s += "outputs.clear\tClear list of TX outputs\n";
     s += "pubkey.get ADDRESS\n\t\tLookup pubkey in wallet, given bitcoin address\n";
     s += "pubkeys KEY1 KEY2 KEY3...\n\t\tAdd to list of pubkeys / bitcoin addresses\n";
     s += "pubkeys.clear\tClear list of pubkeys\n";
-    s += "pubkeys.validate Validate which pubkeys for which you have the private key\n";
     s += "raw SERIALIZED-TX\n\t\tInput serialized transaction from command line\n";
     s += "raw.append FILE\tAppend FILE to serialized transaction data\n";
     s += "raw.clear\tClear serialized tx data\n";
@@ -107,6 +104,15 @@ function spec(b) {
     s += "raw.send\tSend raw tx to network via RPC\n";
     s += "raw.sign [anyonecanpay]\tSign transaction, if possible\n";
     s += "raw.write FILE\tOutput serialize transaction to file\n";
+    s += "validate.all\tRun all validations for p2sh multisig transactions\n";
+    s += "validate.fees\tCalculate miner fees\n";
+    s += "validate.inputs\tValidate that the raw inputs match the inputs\n";
+    s += "validate.inputtxs\n\t\tValidate that the inputtxs match the inputs\n";
+    s += "validate.outputs\n\t\tValidate that the raw outputs match the outputs\n";
+    s += "validate.p2sh\tValidate the p2sh address corresponds to the redeem script.\n"
+    s += "validate.pubkeys\n\t\tValidate which pubkeys for which you have the private key\n";
+    s += "validate.redeem\tValidate that redeem script matches public keys and nreq\n";
+    s += "validate.sigs\tCount and validate signatures in the raw transaction\n";
     s += "wallet.msig\tCommit in-memory multisig data to wallet,\n\t\treturning a multisig payment address.\n";
     console.log(s);
   }
@@ -168,18 +174,18 @@ function spec(b) {
   
   Cosign.prototype.cmd_multisig = function()
   {
-    parse_nreq(1);
+    this.parse_nreq(1);
   
     this.datastore['pubkeys'] = [];  // clear, if not already
-    parse_pubkeys(2);
+    this.parse_pubkeys(2);
   
-    write_datastore(function(err) {});
+    this.write_datastore(function(err) {});
   }
   
   Cosign.prototype.cmd_nreq = function()
   {
-    parse_nreq(1);
-    write_datastore(function(err) {});
+    this.parse_nreq(1);
+    this.write_datastore(function(err) {});
   }
 
   Cosign.prototype.cmd_redeem_create = function()
@@ -192,26 +198,137 @@ function spec(b) {
     this.write_datastore(function() {});
   }
 
-  Cosign.prototype.cmd_redeem_validate_internal = function()
+  Cosign.prototype.cmd_validate_redeem_internal = function()
   {
     var pubkeys = [];
+
     for (var i in this.datastore['pubkeys'])
       pubkeys[i] = new Buffer(this.datastore['pubkeys'][i], 'hex');
+
     var script = Script.createMultisig(this.datastore['n_required'], pubkeys);
     var hex = script.buffer.toString('hex');
+
     if (hex == this.datastore.redeemScript)
       return true;
     else
       return false;
   }
 
-  Cosign.prototype.cmd_redeem_validate = function()
+  Cosign.prototype.cmd_validate_redeem = function()
   {
-    var match = this.cmd_redeem_validate_internal();
+    var match = this.cmd_validate_redeem_internal();
     if (match)
-      console.log('Success.');
+      console.log('Success: redeem script corresponds to nreq and pubkeys.');
     else
-      console.log('Failure. Rebuild redeem script.');
+      console.log('Failure: redeem script does not correspond to nreq and pubkeys.');
+  }
+
+  Cosign.prototype.cmd_validate_sigs_internal = function()
+  {
+    var self = this;
+    var txbuf = new Buffer(self.datastore.raw, 'hex');
+    var tx = new Transaction();
+    tx.parse(txbuf);
+    var ins = tx.ins;
+
+    if (ins.length > 1)
+      return -1; //TODO: support multiple inputs
+
+    var txin = ins[0];
+    var s = txin.s;
+    var script = new Script(s);
+
+    //assume inputs are p2sh multisig created by cosign
+    if (s.length == 0)
+      return 0;
+    
+    var sigsbuf = [];
+    var nsigs = 0;
+    for (var i = 0; i < script.chunks.length - 1; i++) {
+      sigsbuf[i] = script.chunks[i];
+
+      if (sigsbuf[i] != 0) {
+        nsigs++;
+        //TODO: actually verify signature
+      }
+    }
+
+    return nsigs;
+  }
+
+  Cosign.prototype.cmd_validate_sigs = function()
+  {
+    var self = this;
+    var nreq = self.datastore.n_required;
+    var nsigs = self.cmd_validate_sigs_internal();
+
+    if (nsigs >= 0 && nsigs == nreq)
+      console.log('Success: all ' + nreq + ' signatures found.');
+    else if (nsigs >= 0 && nsigs < nreq)
+      console.log('Success: ' + nsigs + ' signatures found. ' + (nreq-nsigs) + ' more required.');
+    else
+      console.log('Failure: Signatures invalid.');
+  }
+
+  Cosign.prototype.cmd_validate_all = function()
+  {
+    console.log('validate.fees:');
+    this.cmd_validate_fees();
+    console.log('\nvalidate.inputs:');
+    this.cmd_validate_inputs();
+    console.log('\nvalidate.inputtxs:');
+    this.cmd_validate_inputtxs();
+    console.log('\nvalidate.outputs:');
+    this.cmd_validate_outputs();
+    console.log('\nvalidate.p2sh:');
+    this.cmd_validate_p2sh();
+    console.log('\nvalidate.pubkeys:');
+    this.cmd_validate_pubkeys();
+    console.log('\nvalidate.redeem:');
+    this.cmd_validate_redeem();
+    console.log('\nvalidate.sigs:');
+    this.cmd_validate_sigs();
+  }
+
+  Cosign.prototype.cmd_validate_fees_internal = function()
+  {
+    var self = this;
+    var outval = 0;
+    var outputs = self.datastore.outputs;
+    for (var i in outputs)
+      outval += coinUtil.parseValue(outputs[i]);
+
+    var inval = new bignum(0);
+    var inputs = self.datastore.inputs;
+    for (var i in inputs) {
+      var input = inputs[i];
+      var input_txid = input.txid;
+      var input_n = input.vout;
+      var txhex = self.datastore.inputtxs[input_txid];
+      var txbuf = new Buffer(txhex, 'hex');
+      var tx = new Transaction();
+      tx.parse(txbuf);
+      inval = inval.add(new bignum(tx.outs[input_n].getValue()));
+    }
+
+    var fees = inval.sub(outval);
+    var fees_btc = fees.toNumber() * 1e-8;
+    return fees_btc;
+  }
+
+  Cosign.prototype.cmd_validate_fees = function()
+  {
+    var self = this;
+    var fees = self.cmd_validate_fees_internal();
+    console.log('Fees: ' + fees + ' BTC');
+    if (fees <= 0.0002 && fees > 0)
+      console.log('Success: fees are reasonable.');
+    else if (fees > 0)
+      console.log('Failure: fees are too high.');
+    else if (fees == 0)
+      console.log('Failure: fees are zero.');
+    else
+      console.log('Failure: fees are negative.');
   }
   
   Cosign.prototype.ds_push_pubkey = function(pubkeyStr)
@@ -242,7 +359,7 @@ function spec(b) {
       throw new Error("Unable to obtain pubkey from wallet");
   
     this.ds_push_pubkey(obj.pub);
-    write_datastore(function(err) {});
+    this.write_datastore(function(err) {});
   }
   
   Cosign.prototype.cmd_pubkey_get = function(address)
@@ -260,8 +377,10 @@ function spec(b) {
     this.write_datastore(function(err) {});
   }
 
-  Cosign.prototype.cmd_pubkeys_validate_file = function()
+  Cosign.prototype.cmd_validate_pubkeys_file = function()
   {
+    var nkeys = 0;
+    var keys = {};
     for (var i in this.datastore.pubkeys) {
       var pubkey = this.datastore.pubkeys[i];
 
@@ -284,25 +403,45 @@ function spec(b) {
 
         if (pubkey2 == pubkey && pubkey3 == pubkey) {
           haskey = true;
+          nkeys++;
           break;
         }
       }
-      console.log(pubkey, haskey ? "yes" : "no");
+
+      keys[pubkey] = haskey;
     }
+
+    if (nkeys == 0)
+      return false;
+    else
+      return keys;
   }
 
-  Cosign.prototype.cmd_pubkeys_validate_rpc = function()
+  Cosign.prototype.cmd_validate_pubkeys_rpc = function()
   {
-    console.log('Not implemented yet.');
+    console.log('Failure: validate.pubkeys for bitcoind wallet not implemented yet.');
   }
 
-  Cosign.prototype.cmd_pubkeys_validate = function()
+  Cosign.prototype.cmd_validate_pubkeys = function()
   {
     var self = this;
-    if (this.wallet)
-      this.cmd_pubkeys_validate_file();
+    var keys = [];
+
+    if (self.wallet)
+      keys = self.cmd_validate_pubkeys_file();
     else
-      this.cmd_pubkeys_validate_rpc();
+      keys = self.cmd_validate_pubkeys_rpc();
+
+    if (keys) {
+      for (var i in self.datastore.pubkeys) {
+        var pubkey = self.datastore.pubkeys[i];
+        var haskey = keys[pubkey];
+        console.log(pubkey, haskey ? "found" : "no");
+      }
+      console.log('Success: one or more public keys with corresponding private key found.');
+    }
+    else
+      console.log('Failure: no public keys with corresponding private key found.');
   }
   
   Cosign.prototype.cmd_inputs = function()
@@ -417,7 +556,14 @@ function spec(b) {
     var keys = Object.keys(this.datastore.outputs);
     keys.forEach(function(addrStr) {
       var addr = new Address(addrStr);
-      var script = Script.createPubKeyHashOut(addr.payload());
+      var version = addr.version()
+
+      if (version == networks.livenet.addressPubkey || version == networks.testnet.addressPubkey)
+        var script = Script.createPubKeyHashOut(addr.payload());
+      else if (version == networks.livenet.addressScript || version == networks.testnet.addressScript)
+        var script = Script.createP2SH(addr.payload());
+      else
+        throw new Error('invalid output address');
   
       var valueNum = coinUtil.parseValue(self.datastore.outputs[addrStr]);
       var value = coinUtil.bigIntToValue(valueNum);
@@ -832,6 +978,223 @@ function spec(b) {
     
     fs.writeFile(filename, self.datastore['raw'], function(err) {});
   }
+
+  Cosign.prototype.cmd_validate_inputs_internal = function()
+  {
+    var self = this;
+    var dbinputs = self.datastore.inputs;
+    if (!dbinputs) return false;
+
+    var raw = self.datastore.raw;
+    if (!raw) return false;
+
+    var tx = new Transaction();
+    tx.parse(new Buffer(raw, 'hex'));
+
+    var txinputs = tx.ins;
+
+    if (txinputs.length != dbinputs.length)
+      return false;
+
+    var txHasInput = [];
+
+    for (var i in dbinputs) {
+      var dbinput = dbinputs[i];
+      var dbinput_txid = dbinput.txid;
+      var dbinput_n = dbinput.vout;
+
+      txHasInput[i]=false;
+
+      for (var j in txinputs) {
+        var txinput = txinputs[j];
+        var txinput_hash = txinput.getOutpointHash();
+        var txinput_txid = coinUtil.formatHashFull(txinput_hash);
+        var txinput_n = txinput.getOutpointIndex();
+
+        if (dbinput_txid == txinput_txid && dbinput_n == txinput_n) {
+          txHasInput[i]=true;
+          break;
+        }
+      }
+
+      if (!txHasInput[i])
+        return false;
+    }
+
+    return true;
+  }
+
+  Cosign.prototype.cmd_validate_inputs = function()
+  {
+    var self = this;
+    var valid = self.cmd_validate_inputs_internal();
+
+    if (valid) {
+      var inputs = self.datastore.inputs;
+      for (var i in inputs) {
+        var input = inputs[i];
+        console.log(input.txid, input.vout);
+      }
+      console.log('Success: database inputs and transaction inputs are one-to-one.');
+    }
+    else
+      console.log('Failure: inconsistency between database inputs and transaction inputs.');
+  }
+
+  Cosign.prototype.cmd_validate_inputtxs_internal = function()
+  {
+    self = this;
+
+    var inputs = self.datastore.inputs;
+    var inputtxs = self.datastore.inputtxs;
+
+    for (var i in inputs) {
+      var txid = inputs[i].txid;
+      var txhex = inputtxs[txid];
+
+      //check that input is in inputtxs
+      if (txhex === undefined)
+        return false;
+
+      var txbuf = new Buffer(txhex, 'hex');
+      var tx = new Transaction();
+      tx.parse(txbuf);
+      var txhash = coinUtil.formatHashFull(tx.getHash());
+
+      //check that tx hashes to txid correctly
+      if (txid !== txhash)
+        return false;
+    }
+
+    return true;
+  }
+
+  Cosign.prototype.cmd_validate_inputtxs = function()
+  {
+    var self = this;
+    var valid = self.cmd_validate_inputtxs_internal();
+
+    if (valid)
+      console.log('Success: inputtxs correspond to inputs.');
+    else
+      console.log('Failure: inconsistency between inputtxs and inputs.');
+  }
+
+  Cosign.prototype.cmd_validate_outputs_internal = function()
+  {
+    var self = this;
+    var dboutputs = self.datastore.outputs;
+    if (!dboutputs) return false;
+
+    var raw = self.datastore.raw;
+    if (!raw) return false;
+
+    var tx = new Transaction();
+    tx.parse(new Buffer(raw, 'hex'));
+
+    var txoutputs = tx.outs;
+
+    var dboutlen = 0;
+    for (var dbouti in dboutputs)
+      dboutlen++;
+    if (txoutputs.length != dboutlen)
+      return false;
+
+    var txHasOutput = [];
+
+    for (var i in dboutputs) {
+      txHasOutput[i] = false;
+
+      var dboutput_addrstr = i;
+      var dboutput_addr = new Address(dboutput_addrstr);
+      var dboutput_hash = dboutput_addr.payload();
+      var dboutput_hashstr = dboutput_hash.toString('hex');
+      var dboutput_val = coinUtil.parseValue(dboutputs[i]).toNumber();
+
+      for (var j in txoutputs) {
+        var txoutput = txoutputs[j];
+        var script = txoutput.getScript();
+        var txoutput_val = txoutput.getValue();
+
+        if (script.isPubkeyHash())
+          var txoutput_hash = script.chunks[2];
+        else if (script.isP2SH())
+          var txoutput_hash = script.chunks[1];
+        else //other output tx types unsupported
+          return false;
+
+        var txoutput_hashstr = txoutput_hash.toString('hex');
+
+        if (dboutput_hashstr == txoutput_hashstr && dboutput_val == txoutput_val)
+          txHasOutput[i] = true;
+      }
+
+      if (!txHasOutput[i])
+        return false;
+    }
+
+    return true;
+  }
+
+  Cosign.prototype.cmd_validate_outputs = function()
+  {
+    var self = this;
+    var valid = self.cmd_validate_outputs_internal();
+
+    if (valid) {
+      for (var i in self.datastore.outputs) {
+        console.log(i, self.datastore.outputs[i]);
+      }
+      console.log('Success: database outputs and transaction outputs are one-to-one.');
+    }
+    else
+      console.log('Failure: inconsistency between database outputs and transaction outputs.');
+  }
+
+  Cosign.prototype.cmd_validate_p2sh_file = function()
+  {
+    var self = this;
+
+    var networkstr = self.wallet.datastore.network;
+    var network = networks[networkstr];
+    var version = network.addressScript;
+    var buf = new Buffer(self.datastore.redeemScript, 'hex');
+    var hash = coinUtil.sha256ripe160(buf);
+    var addr = new Address(version, hash);
+    var addrStr = addr.as('base58');
+
+    var wscript = self.wallet.datastore.scripts[addrStr];
+    var redeem = self.datastore.redeemScript;
+
+    if (redeem == wscript && redeem.length > 0) {
+      return addrStr;
+    }
+    else
+      return false;
+  }
+  
+  Cosign.prototype.cmd_validate_p2sh_rpc = function()
+  {
+    console.log('Failure: validate.p2sh for bitcoind wallet not implemented yet.');
+  }
+
+  Cosign.prototype.cmd_validate_p2sh = function()
+  {
+    var self = this;
+    var addrStr;
+
+    if (this.wallet)
+      addrStr = this.cmd_validate_p2sh_file();
+    else
+      addrStr = this.cmd_validate_p2sh_rpc();
+
+    if (addrStr) {
+      console.log(addrStr);
+      console.log('Success: p2sh address is valid and matches redeem script.');
+    }
+    else
+      console.log('Failure: p2sh address is incorrect.');
+  }
   
   Cosign.prototype.wallet_msig_cb = function(err, resp)
   {
@@ -860,7 +1223,7 @@ function spec(b) {
     if (!this.datastore['n_required'] || !this.datastore['pubkeys'] || !this.datastore['redeemScript'])
       throw new Error("Missing N-Required and/or pubkeys and/or redeemScript");
 
-    var check = this.cmd_redeem_validate_internal();
+    var check = this.cmd_validate_redeem_internal();
     if (!check)
       throw new Error("Pubkeys and n-req do not match redeemScript");
   
@@ -943,9 +1306,6 @@ function spec(b) {
     case "redeem.create":
       this.cmd_redeem_create();
       break;
-    case "redeem.validate":
-      this.cmd_redeem_validate();
-      break;
   
     case "outputs":
       this.cmd_outputs();
@@ -962,9 +1322,6 @@ function spec(b) {
       break;
     case "pubkeys":
       this.cmd_pubkeys();
-      break;
-    case "pubkeys.validate":
-      this.cmd_pubkeys_validate();
       break;
     case "pubkeys.clear":
       delete this.datastore['pubkeys'];
@@ -1011,6 +1368,34 @@ function spec(b) {
       if (this.program.args.length < 2)
         throw new Error("Missing required filename param");
       this.cmd_raw_write(this.program.args[1]);
+      break;
+
+    case "validate.all":
+      this.cmd_validate_all();
+      break;
+    case "validate.fees":
+      this.cmd_validate_fees();
+      break;
+    case "validate.inputs":
+      this.cmd_validate_inputs();
+      break;
+    case "validate.inputtxs":
+      this.cmd_validate_inputtxs();
+      break;
+    case "validate.outputs":
+      this.cmd_validate_outputs();
+      break;
+    case "validate.p2sh":
+      this.cmd_validate_p2sh();
+      break;
+    case "validate.pubkeys":
+      this.cmd_validate_pubkeys();
+      break;
+    case "validate.redeem":
+      this.cmd_validate_redeem();
+      break;
+    case "validate.sigs":
+      this.cmd_validate_sigs();
       break;
   
     case "wallet.msig":
