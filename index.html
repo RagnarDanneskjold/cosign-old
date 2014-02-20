@@ -1,54 +1,111 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title> Cosign </title>
+    <meta name="description" content="Cosign : A secure command-line tool for multisignature and other advanced bitcoin transactions">
+    <meta property="og:site_name" content="Cosign">
+    <meta property="og:url" content="http://cosign.io/">
+    <meta property="og:title" content="Cosign">
+    <meta property="og:description" content="Bitcore is a complete, native interface to the Bitcoin network, and provides the core functionality needed to develop apps for bitcoin.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta property="og:image" content="http://cosign.io/images/og.png">
+    <meta property="og:type" content="website">
+    <link rel="shortcut icon" href="images/favicon.ico" type="image/x-icon">
+    <link href="http://fonts.googleapis.com/css?family=Ubuntu+Mono|Ubuntu:300,400,500,700,400italic" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" href="css/normalize.css">
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/common.css">
+    <script type="text/javascript">
+    window.analytics||(window.analytics=[]),window.analytics.methods=["identify","track","trackLink","trackForm","trackClick","trackSubmit","page","pageview","ab","alias","ready","group","on","once","off"],window.analytics.factory=function(t){return function(){var a=Array.prototype.slice.call(arguments);return a.unshift(t),window.analytics.push(a),window.analytics}};for(var i=0;i<window.analytics.methods.length;i++){var method=window.analytics.methods[i];window.analytics[method]=window.analytics.factory(method)}window.analytics.load=function(t){var a=document.createElement("script");a.type="text/javascript",a.async=!0,a.src=("https:"===document.location.protocol?"https://":"http://")+"d2dq2ahtl5zl1z.cloudfront.net/analytics.js/v1/"+t+"/analytics.min.js";var n=document.getElementsByTagName("script")[0];n.parentNode.insertBefore(a,n)},window.analytics.SNIPPET_VERSION="2.0.8",
+    window.analytics.load("yc2e6mxne0");
+    window.analytics.page("index");
+    </script>
+</head>
+<body>
+    <header class="bg-black text-center">
+        <div class="ribbon hidden-xs">
+            <a href="https://github.com/bitpay/bitcore">View on GitHub</a>
+        </div>
+        <a href="http://bitcore.io/" id="logo">
+            <img src="images/logo-negative.svg" alt="Bitcore">
+        </a>
+        <div class="ribbon-phone visible-xs">
+            <a href="https://github.com/bitpay/bitcore">View on GitHub</a>
+        </div>
+        <div class="black-text">
+            <h3 class="hidden-xs">A secure command-line tool for multisignature and other advanced bitcoin transactions</h3>
+            <h4 class="visible-xs">A secure command-line tool for multisignature and other advanced bitcoin transactions</h4>
+            <p class="lead hidden-xs">For organizations with security and functionality needs beyond a basic bitcoin wallet, cosign allows users to create, share, and broadcast custom transactions</p>
+        </div>
+        <a href="#started" class="btn btn-default" id="cta">Get Started</a>
+    </header>   
+    <div class="container">
+        <h2>Principles</h2>
+        <p>Bitcoin is a powerful new peer-to-peer platform for the next generation of financial technology. The decentralized nature of the Bitcoin network allows for highly resilient bitcoin infrastructure, and the developer community needs reliable, open-source tools to implement bitcoin apps and services.</p>
+        <p>Bitcore unchains developers from fallible, centralized APIs, and provides the tools to interact with the real Bitcoin network.</p>
 
-  <head>
-    <meta charset='utf-8' />
-    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
-    <meta name="description" content="Cosign : A secure command-line tool for multisignature and other advanced bitcoin transactions" />
+        <h2 id="started">Get Started</h2>
+        <p>Bitcore runs on <a href="http://nodejs.org/">node</a>, and can be installed via <a href="https://npmjs.org/">npm:</a></p>
+<pre>
+npm install bitcore
+</pre> <br> <br>
+        <p>It is a collection of objects useful to bitcoin applications; class-like idioms are enabled via <a href="https://github.com/gasteve/classtool">classtool</a>.  In most cases, a developer will require the object's class directly:</p>
+<pre>
+var Address = require('bitcore/Address').class();
+</pre>
 
-    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+        <h2>Examples</h2>
+        <p>Validating a Bitcoin address:</p>
+<pre>
+var Address = require('bitcore/Address').class();
 
-    <title>Cosign</title>
-  </head>
+var addr = new Address("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa");
 
-  <body>
+try {
+    addr.validate();
+    console.log("Address is valid.");
+} catch(e) {
+    console.log(addr.data + " is not a valid address. " + e);
+}
+</pre>
 
-    <!-- HEADER -->
-    <div id="header_wrap" class="outer">
-        <header class="inner">
-          <a id="forkme_banner" href="https://github.com/bitpay/cosign">View on GitHub</a>
+        <h2>Security</h2>
+        <p>Please use at your own risk.</p>
+        <p>Bitcore is still under heavy development and not quite ready for "drop-in" production use. If you find a security issue, please email <a href="mailto:security@bitcore.io">security@bitcore.io</a>.</p>
 
-          <h1 id="project_title">Cosign</h1>
-          <h2 id="project_tagline">A secure command-line tool for multisignature and other advanced bitcoin transactions</h2>
+        <h2>Contributing</h2>
+        <p>Bitcore needs some developer love. Please send pull requests for bug fixes, code optimization, and ideas for improvement.</p>
+    </div> <!-- end of Container -->
 
-            <section id="downloads">
-              <a class="zip_download_link" href="https://github.com/bitpay/cosign/zipball/master">Download this project as a .zip file</a>
-              <a class="tar_download_link" href="https://github.com/bitpay/cosign/tarball/master">Download this project as a tar.gz file</a>
-            </section>
-        </header>
-    </div>
+    <footer>
+        <div class="copyright">
+            <div class="container"> 
+                <div class="row text-center hidden-sm">
+                    <div class="col-md-8">
+                        <img src="images/logo-negative.svg" alt="" class="pull-left" width="70">
+                        <p class="pull-left"><small> maintained by <a href="https://github.com/bitpay">bitpay</a></small></p>
+                    </div>
+                    <div class="col-md-4 row">
+                        <div class="col-md-4 tex-center">
+                            <iframe src="http://ghbtns.com/github-btn.html?user=bitpay&repo=bitcore&type=watch&count=true" allowtransparency="true" frameborder="0" scrolling="0" width="110" height="20"></iframe>
+                        </div>
+                        <div class="col-md-4 tex-center">
+                            <iframe src="http://ghbtns.com/github-btn.html?user=bitpay&repo=bitcore&type=fork&count=true" allowtransparency="true" frameborder="0" scrolling="0" width="95" height="20"></iframe>
+                        </div>
+                        <div class="col-md-4 tex-center">
+                            <iframe src="http://ghbtns.com/github-btn.html?user=Bitpay&type=follow&count=true" allowtransparency="true" frameborder="0" scrolling="0" width="165" height="20"></iframe>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
 
-    <!-- MAIN CONTENT -->
-    <div id="main_content_wrap" class="outer">
-      <section id="main_content" class="inner">
-        <h3>
-<a name="cosign" class="anchor" href="#cosign"><span class="octicon octicon-link"></span></a>Cosign</h3>
-
-<p>A secure command-line tool for multisignature and other advanced bitcoin transactions</p>
-
-<p>For organizations with security and functionality needs beyond a basic bitcoin wallet, cosign allows users to create, share, and broadcast custom transactions</p>
-      </section>
-    </div>
-
-    <!-- FOOTER  -->
-    <div id="footer_wrap" class="outer">
-      <footer class="inner">
-        <p class="copyright">Cosign maintained by <a href="https://github.com/bitpay">bitpay</a></p>
-        <p>Published with <a href="http://pages.github.com">GitHub Pages</a></p>
-      </footer>
-    </div>
-
-    
-
-  </body>
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js" type="text/javascript" language="JavaScript"></script>
+    <script src="https://code.jquery.com/jquery.js"></script>
+    <script src="js/bootstrap.min.js"></script>
+    <script src="js/a.js"></script>
+</body>
 </html>
