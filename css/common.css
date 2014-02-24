@@ -46,7 +46,6 @@ a:hover {
 	display: block;
 	font-weight: 100;
 	font-size: 20px;
-	color: white;
 	width: 60%;
 	padding: 8px;
 	margin: 40px auto;
@@ -85,6 +84,7 @@ pre {
 	color: #fff;
 	line-height: 30px;
 	white-space: pre;
+	margin-bottom: 3em;
 }
 
 .container {
@@ -119,6 +119,16 @@ pre {
 	margin: 57px auto;
 	width: 60%;
 	border-bottom: 1px dashed #ccc;
+}
+
+ul.list-unstyled {
+	margin-bottom: 3em;
+}
+
+ul.list-unstyled li {
+	line-height: 2em;
+	margin-left: 2em;
+	color: #999;
 }
 
 .black-text {

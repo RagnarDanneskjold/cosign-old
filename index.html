@@ -47,36 +47,117 @@
         <p>Bitcore unchains developers from fallible, centralized APIs, and provides the tools to interact with the real Bitcoin network.</p>
 
         <h2 id="started">Get Started</h2>
-        <p>Bitcore runs on <a href="http://nodejs.org/">node</a>, and can be installed via <a href="https://npmjs.org/">npm:</a></p>
+        <p>Cosign runs on <a href="http://nodejs.org/">node</a>, and can be installed via <a href="https://npmjs.org/">npm:</a></p>
 <pre>
-npm install bitcore
-</pre> <br> <br>
-        <p>It is a collection of objects useful to bitcoin applications; class-like idioms are enabled via <a href="https://github.com/gasteve/classtool">classtool</a>.  In most cases, a developer will require the object's class directly:</p>
-<pre>
-var Address = require('bitcore/Address').class();
-</pre>
-
+npm install cosign
+</pre>  
         <h2>Examples</h2>
-        <p>Validating a Bitcoin address:</p>
+        <h3 class="text-info">Tx-signing</h3>
+        <p>In this example, someone has emailed the raw hex data for a bitcoin
+        transaction, UNSIGNED.TXT.  The user signs the transaction, and then
+        emails SIGNED.TXT to another party.</p>
 <pre>
-var Address = require('bitcore/Address').class();
-
-var addr = new Address("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa");
-
-try {
-    addr.validate();
-    console.log("Address is valid.");
-} catch(e) {
-    console.log(addr.data + " is not a valid address. " + e);
-}
+$ ./cosign init
+$ ./cosign raw.read UNSIGNED.TXT
+$ ./cosign raw.sign
+$ ./cosign raw.write SIGNED.TXT
+</pre>
+        <p>Additionally, if the transaction is complete -- raw.sign reports
+        "sigs:complete" -- then the transaction may be broadcast on the network.</p>
+<pre>
+$ ./cosign raw.send
+</pre><br>
+        <h3 class="text-info line-negative-t">Multisig</h3>
+        <p class="h4">1) Initialize db.</p>
+<pre>
+$ ./cosign init
+</pre>
+        <ul class="list-unstyled"> <p class="h4">2)  Obtain three bitcoin addresses:</p>
+            <li>smallmxDoMG9BogJ6kmgiTJNxhaAUUh11j3HWHr</li>
+            <li>myGFNvUkRL3DTWHgKvuv29JW1TkcaihsSN</li>
+            <li>mr3q8AeyLX53h9JctDAbVfWDYkiW52PRSP</li>
+        </ul>
+        </p>
+        <p class="h4">3)  Communicate with the local bitcoind associated with each
+        address, and obtain the full public keys:</p>
+<pre>
+$ ./cosign pubkey.get mxDoMG9BogJ6kmgiTJNxhaAUUh11j3HWHr
+$ ./cosign pubkey.get myGFNvUkRL3DTWHgKvuv29JW1TkcaihsSN
+$ ./cosign pubkey.get mr3q8AeyLX53h9JctDAbVfWDYkiW52PRSP
+</pre>
+        <p>And we see the database has been updated with our three public keys:</p>
+<pre>
+$ ./cosign dump
+{ pubkeys: 
+   [ '02affe9b8160e2d2b492389501407355cc19603ed99bbe542a6799447ea735b453',
+     '02c2f5e2c376d0e0963f0a3a798877788f94c440f621a6493582b63f08bb55d1da',
+     '025fcbc602f0f6ef5a488362e76e4a1ce15eb0a16921c050741831348190369ab5' ] }
+</pre>
+        <p class="h4">4) Set number of signatures required.</p>
+<pre>
+$ ./cosign nreq 2
+</pre> 
+        <p class="h4">5) Use this data to add a multisig payment address to bitcoind's wallet.</p>
+<pre>
+$ ./cosign wallet.msig
+2MsfxrcnDNF1kHJRxXT11TnAgDvVHkEvzSd
+</pre>
+        <p class="h4">6) Send bitcoins to the multisig address.</p>
+<pre>
+$ ./bitcoind -testnet sendtoaddress 2MsfxrcnDNF1kHJRxXT11TnAgDvVHkEvzSd 1.5
+ad39b5d53230af4784fb46720e5bc474f16a97a2fc6e85eed5fd3ef423e97885
+</pre>
+        <p>Inspect the transaction, if you're curious:</p>
+<pre>
+$ ./bitcoind -testnet getrawtransaction ad39b5d53230af4784fb46720e5bc474f16a97a2fc6e85eed5fd3ef423e97885 1
+</pre>
+        <p class="h4">7) Time passes.  Now, at least two parties are happy, and want
+        to spend the bitcoins.</p> <br>
+        <p class="h4">8) Create inputs for the spend-bitcoins transactions.</p>
+<pre>
+$ ./cosign inputs ad39b5d53230af4784fb46720e5bc474f16a97a2fc6e85eed5fd3ef423e97885 0
+</pre>
+        <p class="h4">9) Create outputs for the spend-bitcoins transactions.
+        mftotywBYNSHjYCL1x4XWTkoac3t71UYL1 is the recipient in this example.</p>
+<pre>
+$ ./cosign outputs mftotywBYNSHjYCL1x4XWTkoac3t71UYL1 1.5
+</pre>
+        <p class="h4">10) Serialize the inputs and outputs into a raw transaction.</p>
+<pre>
+$ ./cosign raw.create
+</pre>
+        <p>Inspecting the database demonstrates the fruit of all our labors:
+        "raw" contains the serialized, unsigned transaction.</p>
+<pre>
+$ ./cosign dump
+{ pubkeys: 
+   [ '02affe9b8160e2d2b492389501407355cc19603ed99bbe542a6799447ea735b453',
+     '02c2f5e2c376d0e0963f0a3a798877788f94c440f621a6493582b63f08bb55d1da',
+     '025fcbc602f0f6ef5a488362e76e4a1ce15eb0a16921c050741831348190369ab5' ],
+  n_required: 2,
+  inputs: 
+   [ { txid: 'ad39b5d53230af4784fb46720e5bc474f16a97a2fc6e85eed5fd3ef423e97885',
+       vout: 0 } ],
+  outputs: { mftotywBYNSHjYCL1x4XWTkoac3t71UYL1: 1.5 },
+  raw: '01000000018578e923f43efdd5ee856efca2976af174c45b0e7246fb8447af3032d5b539ad0000000000ffffffff0180d1f008000000001976a9140422241b3efea67ae03dfec9a389d06e4550d28288ac00000000' }
+</pre>
+        <p class="h4">11) Sign the raw transaction.</p>
+<pre>
+$ ./cosign raw.sign
+sigs:complete
+raw:updated
+</pre>
+        <p>In this simple example, all keys were in one bitcoind, and the
+        transaction is now fully signed ("sigs:complete").  A more realistic
+        example will use "raw.read" and "raw.write" to exchange partially
+        signed raw transactions among multiple parties.</p> <br>
+        <p class="h4">12) Broadcast the signed transaction to the network</p>
+<pre>
+$ ./cosign raw.send
+ca02bc7bdaf8a79b150e825e3d528620092ed42d68d649738381102aa1f0d9fe
 </pre>
 
-        <h2>Security</h2>
-        <p>Please use at your own risk.</p>
-        <p>Bitcore is still under heavy development and not quite ready for "drop-in" production use. If you find a security issue, please email <a href="mailto:security@bitcore.io">security@bitcore.io</a>.</p>
 
-        <h2>Contributing</h2>
-        <p>Bitcore needs some developer love. Please send pull requests for bug fixes, code optimization, and ideas for improvement.</p>
     </div> <!-- end of Container -->
 
     <footer>
